@@ -14,6 +14,7 @@ class DeviceVendor(str, Enum):
     HUAWEI = "huawei"
     HP = "hp"
     ARUBA = "aruba"
+    CISCO = "cisco"
     UNKNOWN = "unknown"
 
 

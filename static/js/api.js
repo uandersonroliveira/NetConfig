@@ -96,11 +96,19 @@ const API = {
         });
     },
 
-    async startDiscovery(deviceIps = null, credentialId = null, addNeighbors = true) {
+    async addScannedDevices(devices) {
+        return this.request('/scan/add-devices', {
+            method: 'POST',
+            body: { devices: devices },
+        });
+    },
+
+    async startDiscovery(deviceIps = null, credentialId = null, addNeighbors = true, ipRange = null) {
         return this.request('/discover', {
             method: 'POST',
             body: {
                 device_ips: deviceIps,
+                ip_range: ipRange,
                 credential_id: credentialId,
                 add_neighbors: addNeighbors,
             },
@@ -177,11 +185,13 @@ const API = {
     },
 
     // MAC search endpoints
-    async searchMac(macAddress) {
+    async searchMac(macAddress, deviceIps = null, credentialId = null) {
         return this.request('/mac/search', {
             method: 'POST',
             body: {
                 mac_address: macAddress,
+                device_ips: deviceIps,
+                credential_id: credentialId,
             },
         });
     },

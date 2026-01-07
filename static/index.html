@@ -67,7 +67,7 @@
                         <button class="btn btn-secondary" onclick="checkDevicesStatus()">
                             &#8635; Update Status
                         </button>
-                        <button class="btn btn-secondary" onclick="collectAllConfigs()">
+                        <button class="btn btn-secondary" onclick="openCollectConfigsModal()">
                             &#128230; Collect Configs
                         </button>
                         <button class="btn btn-primary" onclick="openModal('add-device-modal')">
@@ -90,6 +90,12 @@
                     <div class="progress-text">
                         <span>Collecting configs...</span>
                     </div>
+                </div>
+                <div id="devices-collect-device-list" class="card" style="display: none; margin-bottom: 1rem;">
+                    <div class="card-header" style="border-bottom: 1px solid var(--border-color); margin: -1.5rem -1.5rem 1rem -1.5rem; padding: 1rem 1.5rem;">
+                        <span class="card-title">Collection Progress</span>
+                    </div>
+                    <div id="devices-collect-device-progress" class="device-progress-list" style="max-height: 200px; overflow-y: auto;"></div>
                 </div>
                 <div class="card">
                     <div class="table-container">
@@ -140,14 +146,52 @@
                             <span>Starting...</span>
                         </div>
                     </div>
+
+                    <!-- Scan Results Selection -->
+                    <div id="scan-results" style="display: none; margin-top: 1.5rem;">
+                        <h4>Discovered Devices</h4>
+                        <p style="color: var(--text-muted); margin-bottom: 0.5rem;">
+                            Select devices to add to your inventory:
+                        </p>
+                        <div class="table-container" style="max-height: 300px; overflow-y: auto;">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th style="width: 40px;">
+                                            <input type="checkbox" id="scan-select-all" onchange="toggleScanSelectAll(this)">
+                                        </th>
+                                        <th>IP Address</th>
+                                        <th>Response Time</th>
+                                        <th>Vendor</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="scan-results-tbody"></tbody>
+                            </table>
+                        </div>
+                        <div style="margin-top: 1rem; display: flex; gap: 0.5rem; align-items: center;">
+                            <button class="btn btn-primary" id="add-scanned-devices-btn" onclick="addSelectedScannedDevices()">
+                                Add Selected (<span id="scan-selected-count">0</span>)
+                            </button>
+                            <button class="btn btn-secondary" onclick="clearScanResults()">Clear Results</button>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="card" style="margin-top: 1rem;">
                     <h3 style="margin-bottom: 1rem;">LLDP/CDP Discovery</h3>
                     <p style="color: var(--text-muted); margin-bottom: 1rem;">
-                        Discover network neighbors by querying LLDP/CDP from known devices.
+                        Discover network neighbors by querying LLDP/CDP from devices.
                     </p>
                     <form id="discover-form">
+                        <div class="form-group">
+                            <label for="discover-ip-range">IP Range (optional)</label>
+                            <input type="text" id="discover-ip-range" class="form-control"
+                                   placeholder="192.168.1.0/24 or 192.168.1.1-50 (leave empty to use known devices)">
+                            <small style="color: var(--text-muted);">
+                                If provided, scans the range first, detects vendors, then discovers neighbors
+                            </small>
+                        </div>
                         <div class="form-group">
                             <label for="discover-credential">Credential</label>
                             <select id="discover-credential" class="form-control credential-select">
@@ -356,6 +400,23 @@
                                 Examples: <code>00:11:22:*</code>, <code>00:11:??:33:*</code>, <code>0011*</code>
                             </small>
                         </div>
+                        <div class="form-group">
+                            <label for="mac-search-credential">Credential</label>
+                            <select id="mac-search-credential" class="form-control credential-select">
+                                <option value="">Use Default</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Select devices to search:</label>
+                            <div id="mac-search-device-list" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 4px; padding: 0.5rem; margin-top: 0.5rem;">
+                                <p class="empty-state">Loading devices...</p>
+                            </div>
+                            <div style="margin-top: 0.5rem;">
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllMacSearchDevices(true)">Select All</button>
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllMacSearchDevices(false)">Select None</button>
+                                <span id="mac-search-selected-count" style="margin-left: 1rem; color: var(--text-muted);">0 selected</span>
+                            </div>
+                        </div>
                         <button type="submit" class="btn btn-primary" id="mac-search-btn">Search</button>
                     </form>
                     <div id="mac_search-progress" class="progress-container" style="display: none; margin-top: 1rem;">
@@ -429,6 +490,7 @@
                             <option value="huawei">Huawei</option>
                             <option value="hp">HP</option>
                             <option value="aruba">Aruba</option>
+                            <option value="cisco">Cisco (IOS)</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -492,6 +554,41 @@
             </div>
             <div class="modal-body">
                 <pre class="config-viewer" id="config-viewer-content"></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Collect Configs Modal -->
+    <div id="collect-configs-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Collect Configurations</h3>
+                <button class="modal-close" onclick="closeModal('collect-configs-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="collect-modal-credential">Credential</label>
+                    <select id="collect-modal-credential" class="form-control credential-select">
+                        <option value="">Use Default</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Select devices to collect from:</label>
+                    <div id="collect-modal-device-list" style="max-height: 250px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 4px; padding: 0.5rem; margin-top: 0.5rem;">
+                        <p class="empty-state">Loading devices...</p>
+                    </div>
+                    <div style="margin-top: 0.5rem;">
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllCollectDevices(true)">Select All</button>
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllCollectDevices(false)">Select None</button>
+                        <span id="collect-modal-selected-count" style="margin-left: 1rem; color: var(--text-muted);">0 selected</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('collect-configs-modal')">Cancel</button>
+                <button type="button" class="btn btn-primary" id="collect-modal-btn" onclick="startCollectFromModal()">
+                    Start Collection
+                </button>
             </div>
         </div>
     </div>

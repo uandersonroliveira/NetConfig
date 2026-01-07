@@ -35,6 +35,7 @@ class ScanRequest(BaseModel):
 
 class DiscoverRequest(BaseModel):
     device_ips: Optional[List[str]] = None
+    ip_range: Optional[str] = None
     credential_id: Optional[str] = None
     add_neighbors: bool = True
 
@@ -253,7 +254,7 @@ async def delete_device(ip: str):
 # Scan endpoints
 @router.post("/scan")
 async def scan_network(request: ScanRequest, background_tasks: BackgroundTasks):
-    """Scan IP range for devices with open SSH ports."""
+    """Scan IP range for devices with open SSH ports (does not auto-add devices)."""
     ip_range = request.ip_range
 
     def run_scan_sync():
@@ -273,13 +274,15 @@ async def scan_network(request: ScanRequest, background_tasks: BackgroundTasks):
 
         results = scanner.scan_with_details(ip_range, progress_callback)
 
+        # Collect found devices but don't add them - let user select
+        existing_ips = {d.ip for d in storage.list_devices()}
         for ip, result in results.items():
             if result.get('ssh_open'):
-                found.append(ip)
-                existing = storage.get_device(ip)
-                if not existing:
-                    new_device = Device(ip=ip, status=DeviceStatus.ONLINE)
-                    storage.save_device(new_device)
+                found.append({
+                    'ip': ip,
+                    'response_time': result.get('response_time'),
+                    'already_exists': ip in existing_ips
+                })
 
         loop.run_until_complete(manager.broadcast_complete('scan', {
             'total_scanned': total,
@@ -292,18 +295,49 @@ async def scan_network(request: ScanRequest, background_tasks: BackgroundTasks):
     return {"message": "Scan started", "ip_range": ip_range}
 
 
+class AddScannedDevicesRequest(BaseModel):
+    devices: List[Dict[str, Any]]
+
+
+@router.post("/scan/add-devices")
+async def add_scanned_devices(request: AddScannedDevicesRequest):
+    """Add selected devices from scan results."""
+    added = []
+    skipped = []
+
+    for device_data in request.devices:
+        ip = device_data.get('ip')
+        vendor = device_data.get('vendor')
+
+        if not ip:
+            continue
+
+        existing = storage.get_device(ip)
+        if existing:
+            skipped.append(ip)
+            continue
+
+        vendor_enum = DeviceVendor.UNKNOWN
+        if vendor:
+            try:
+                vendor_enum = DeviceVendor(vendor)
+            except ValueError:
+                pass
+
+        new_device = Device(ip=ip, vendor=vendor_enum, status=DeviceStatus.ONLINE)
+        storage.save_device(new_device)
+        added.append(ip)
+
+    return {
+        "message": f"Added {len(added)} devices",
+        "added": added,
+        "skipped": skipped
+    }
+
+
 @router.post("/discover")
 async def discover_neighbors(request: DiscoverRequest, background_tasks: BackgroundTasks):
-    """Discover network neighbors via LLDP/CDP from known devices."""
-
-    if request.device_ips:
-        devices = [storage.get_device(ip) for ip in request.device_ips]
-        devices = [d for d in devices if d is not None and d.vendor != DeviceVendor.UNKNOWN]
-    else:
-        devices = [d for d in storage.list_devices() if d.vendor != DeviceVendor.UNKNOWN]
-
-    if not devices:
-        raise HTTPException(status_code=400, detail="No devices with known vendor to query")
+    """Discover network neighbors via LLDP/CDP from devices or IP range."""
 
     cred = None
     if request.credential_id:
@@ -315,9 +349,161 @@ async def discover_neighbors(request: DiscoverRequest, background_tasks: Backgro
         raise HTTPException(status_code=400, detail="No credentials available")
 
     password = storage.get_decrypted_password(cred.id)
-    device_list = devices.copy()
     username = cred.username
     add_neighbors = request.add_neighbors
+    ip_range = request.ip_range
+
+    # If IP range provided, we'll scan and discover in the background task
+    if ip_range:
+        def run_range_discovery_sync():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            all_neighbors = []
+            new_devices = []
+            devices_queried = 0
+
+            # Phase 1: Scan IP range
+            loop.run_until_complete(manager.broadcast_progress(
+                'discover', 0, 100,
+                f"Scanning IP range: {ip_range}",
+                success=True,
+                extra={'phase': 'scanning'}
+            ))
+
+            ips = expand_ip_input(ip_range)
+            found_ips = []
+
+            for idx, ip in enumerate(ips, 1):
+                if scanner.check_ssh_port(ip):
+                    found_ips.append(ip)
+                if idx % 10 == 0 or idx == len(ips):
+                    loop.run_until_complete(manager.broadcast_progress(
+                        'discover', idx, len(ips),
+                        f"Scanning {ip} ({len(found_ips)} found)",
+                        success=True,
+                        extra={'phase': 'scanning', 'found': len(found_ips)}
+                    ))
+
+            if not found_ips:
+                loop.run_until_complete(manager.broadcast_complete('discover', {
+                    'total_devices_queried': 0,
+                    'neighbors_found': 0,
+                    'neighbors': [],
+                    'new_devices': [],
+                    'message': 'No devices found in IP range'
+                }))
+                loop.close()
+                return
+
+            # Phase 2: Detect vendor and discover neighbors
+            total = len(found_ips)
+            for idx, ip in enumerate(found_ips, 1):
+                loop.run_until_complete(manager.broadcast_progress(
+                    'discover', idx, total,
+                    f"Detecting vendor for {ip}",
+                    success=True,
+                    extra={'device_ip': ip, 'status': 'in_progress', 'phase': 'detecting'}
+                ))
+
+                # Try to detect vendor
+                detected_vendor = None
+                for vendor in [DeviceVendor.HUAWEI, DeviceVendor.HP, DeviceVendor.ARUBA, DeviceVendor.CISCO]:
+                    try:
+                        driver_class = connector.get_driver_class(vendor)
+                        driver = driver_class(ip, username, password, timeout=10)
+                        if driver.connect():
+                            detected_vendor = vendor
+                            # Get neighbors while connected
+                            lldp_neighbors = []
+                            cdp_neighbors = []
+                            try:
+                                lldp_neighbors = driver.get_lldp_neighbors()
+                            except Exception:
+                                pass
+                            try:
+                                cdp_neighbors = driver.get_cdp_neighbors()
+                            except Exception:
+                                pass
+                            driver.disconnect()
+
+                            devices_queried += 1
+                            lldp_count = len(lldp_neighbors)
+                            cdp_count = len(cdp_neighbors)
+
+                            for neighbor in lldp_neighbors:
+                                neighbor['source'] = 'lldp'
+                                neighbor['source_device'] = ip
+                                all_neighbors.append(neighbor)
+
+                            for neighbor in cdp_neighbors:
+                                neighbor['source'] = 'cdp'
+                                neighbor['source_device'] = ip
+                                all_neighbors.append(neighbor)
+
+                            # Add device to storage
+                            existing = storage.get_device(ip)
+                            if not existing:
+                                new_device = Device(ip=ip, vendor=vendor, status=DeviceStatus.ONLINE)
+                                storage.save_device(new_device)
+
+                            loop.run_until_complete(manager.broadcast_progress(
+                                'discover', idx, total,
+                                f"Found {lldp_count} LLDP, {cdp_count} CDP on {ip} ({vendor.value})",
+                                success=True,
+                                extra={'device_ip': ip, 'status': 'completed',
+                                       'vendor': vendor.value, 'lldp_count': lldp_count, 'cdp_count': cdp_count}
+                            ))
+                            break
+                    except Exception:
+                        continue
+
+                if not detected_vendor:
+                    loop.run_until_complete(manager.broadcast_progress(
+                        'discover', idx, total,
+                        f"Could not connect to {ip}",
+                        success=False,
+                        extra={'device_ip': ip, 'status': 'failed'}
+                    ))
+
+            # Identify new devices from neighbors
+            if add_neighbors and all_neighbors:
+                existing_ips = {d.ip for d in storage.list_devices()}
+                for neighbor in all_neighbors:
+                    neighbor_name = neighbor.get('neighbor_device', '')
+                    if neighbor_name and neighbor_name not in existing_ips:
+                        detected = connector.detect_vendor_from_neighbors(neighbor_name)
+                        new_devices.append({
+                            'name': neighbor_name,
+                            'vendor': detected.value if detected else 'unknown',
+                            'source': neighbor.get('source'),
+                            'source_device': neighbor.get('source_device')
+                        })
+
+            loop.run_until_complete(manager.broadcast_complete('discover', {
+                'total_devices_queried': devices_queried,
+                'neighbors_found': len(all_neighbors),
+                'neighbors': all_neighbors,
+                'new_devices': new_devices,
+                'ips_scanned': len(ips),
+                'ips_found': len(found_ips)
+            }))
+            loop.close()
+
+        background_tasks.add_task(lambda: executor.submit(run_range_discovery_sync).result())
+        return {"message": "Discovery started", "ip_range": ip_range}
+
+    # Original behavior: use existing devices
+    if request.device_ips:
+        devices = [storage.get_device(ip) for ip in request.device_ips]
+        devices = [d for d in devices if d is not None and d.vendor != DeviceVendor.UNKNOWN]
+    else:
+        devices = [d for d in storage.list_devices() if d.vendor != DeviceVendor.UNKNOWN]
+
+    if not devices:
+        raise HTTPException(status_code=400, detail="No devices with known vendor to query")
+
+    device_list = devices.copy()
 
     def run_discovery_sync():
         loop = asyncio.new_event_loop()
@@ -429,11 +615,22 @@ async def collect_configs(request: CollectRequest, background_tasks: BackgroundT
         success_count = 0
         fail_count = 0
 
+        # Send initial progress with device list
+        device_ips = [d.ip for d in device_list]
+        loop.run_until_complete(manager.broadcast_progress(
+            'collect', 0, total,
+            f"Starting collection for {total} devices",
+            success=True,
+            extra={'device_ips': device_ips, 'phase': 'starting'}
+        ))
+
         def progress_callback(current: int, total: int, ip: str, success: bool):
+            status = 'completed' if success else 'failed'
             loop.run_until_complete(manager.broadcast_progress(
                 'collect', current, total,
                 f"{'Collected' if success else 'Failed'}: {ip}",
-                success=success
+                success=success,
+                extra={'device_ip': ip, 'status': status}
             ))
 
         results = collector.collect_devices(device_list, username, password, progress_callback)

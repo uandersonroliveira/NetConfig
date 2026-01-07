@@ -68,6 +68,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 await loadCredentials();
                 initLogsDeviceList();
                 break;
+            case 'mac-search':
+                await loadDevices();
+                await loadCredentials();
+                initMacSearchDeviceList();
+                break;
         }
     }
 
@@ -309,6 +314,61 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Make loadComparisonReports accessible globally
     window.loadComparisonReports = loadComparisonReports;
+
+    // ==================== COLLECTION DEVICE PROGRESS ====================
+
+    function initCollectDeviceProgress(deviceIps) {
+        const container = document.getElementById('devices-collect-device-progress');
+        const listContainer = document.getElementById('devices-collect-device-list');
+
+        if (!container || !listContainer) return;
+
+        listContainer.style.display = 'block';
+
+        container.innerHTML = deviceIps.map(ip => {
+            const device = devices.find(d => d.ip === ip);
+            const hostname = device ? (device.hostname || ip) : ip;
+            return `
+                <div class="device-progress-item" data-device-ip="${ip}" style="display: flex; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);">
+                    <span class="device-ip" style="flex: 1;">${hostname} <span style="color: var(--text-muted);">(${ip})</span></span>
+                    <span class="device-status status-pending">
+                        <span class="spinner-small"></span> Pending...
+                    </span>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function updateCollectDeviceStatus(deviceIp, status) {
+        const container = document.getElementById('devices-collect-device-progress');
+        if (!container) return;
+
+        const deviceRow = container.querySelector(`[data-device-ip="${deviceIp}"]`);
+        if (!deviceRow) return;
+
+        const statusSpan = deviceRow.querySelector('.device-status');
+        if (!statusSpan) return;
+
+        if (status === 'in_progress') {
+            statusSpan.innerHTML = '<span class="spinner-small"></span> Collecting...';
+            statusSpan.className = 'device-status status-progress';
+        } else if (status === 'completed') {
+            statusSpan.innerHTML = '&#10004; Collected';
+            statusSpan.className = 'device-status status-success';
+        } else if (status === 'failed') {
+            statusSpan.innerHTML = '&#10008; Failed';
+            statusSpan.className = 'device-status status-error';
+        }
+    }
+
+    function hideCollectDeviceProgress() {
+        const listContainer = document.getElementById('devices-collect-device-list');
+        if (listContainer) {
+            setTimeout(() => {
+                listContainer.style.display = 'none';
+            }, 3000);
+        }
+    }
 
     // ==================== LOG COLLECTION ====================
 
@@ -736,6 +796,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const button = document.getElementById('scan-btn');
         setButtonLoading(button, true, 'Scanning...');
 
+        // Hide previous results
+        document.getElementById('scan-results').style.display = 'none';
+
         try {
             await API.startScan(ipRange);
             showToast('Scan started', 'info');
@@ -746,19 +809,112 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Scan results handling
+    function renderScanResults(devices) {
+        const container = document.getElementById('scan-results');
+        const tbody = document.getElementById('scan-results-tbody');
+
+        if (!devices || devices.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+
+        tbody.innerHTML = devices.map(d => `
+            <tr>
+                <td>
+                    <input type="checkbox" class="scan-device-checkbox"
+                           data-ip="${d.ip}"
+                           ${d.already_exists ? 'disabled' : 'checked'}
+                           onchange="updateScanSelectedCount()">
+                </td>
+                <td>${d.ip}</td>
+                <td>${d.response_time ? d.response_time + ' ms' : '-'}</td>
+                <td>
+                    <select class="form-control scan-vendor-select" data-ip="${d.ip}" ${d.already_exists ? 'disabled' : ''}>
+                        <option value="">Auto-detect</option>
+                        <option value="huawei">Huawei</option>
+                        <option value="hp">HP</option>
+                        <option value="aruba">Aruba</option>
+                        <option value="cisco">Cisco (IOS)</option>
+                    </select>
+                </td>
+                <td>
+                    ${d.already_exists ?
+                        '<span class="badge badge-warning">Already exists</span>' :
+                        '<span class="badge badge-success">New</span>'}
+                </td>
+            </tr>
+        `).join('');
+
+        container.style.display = 'block';
+        updateScanSelectedCount();
+    }
+
+    window.toggleScanSelectAll = function(checkbox) {
+        const checkboxes = document.querySelectorAll('.scan-device-checkbox:not(:disabled)');
+        checkboxes.forEach(cb => cb.checked = checkbox.checked);
+        updateScanSelectedCount();
+    };
+
+    window.updateScanSelectedCount = function() {
+        const checked = document.querySelectorAll('.scan-device-checkbox:checked').length;
+        document.getElementById('scan-selected-count').textContent = checked;
+        document.getElementById('add-scanned-devices-btn').disabled = checked === 0;
+    };
+
+    window.addSelectedScannedDevices = async function() {
+        const checkboxes = document.querySelectorAll('.scan-device-checkbox:checked');
+        const devices = [];
+
+        checkboxes.forEach(cb => {
+            const ip = cb.dataset.ip;
+            const vendorSelect = document.querySelector(`.scan-vendor-select[data-ip="${ip}"]`);
+            devices.push({
+                ip: ip,
+                vendor: vendorSelect ? vendorSelect.value : null
+            });
+        });
+
+        if (devices.length === 0) {
+            showToast('No devices selected', 'warning');
+            return;
+        }
+
+        const button = document.getElementById('add-scanned-devices-btn');
+        setButtonLoading(button, true, 'Adding...');
+
+        try {
+            const result = await API.addScannedDevices(devices);
+            showToast(`Added ${result.added.length} devices`, 'success');
+            document.getElementById('scan-results').style.display = 'none';
+            await loadDevices();
+        } catch (error) {
+            showToast(error.message, 'error');
+        } finally {
+            setButtonLoading(button, false);
+        }
+    };
+
+    window.clearScanResults = function() {
+        document.getElementById('scan-results').style.display = 'none';
+        document.getElementById('scan-results-tbody').innerHTML = '';
+    };
+
     // Discovery form
     document.getElementById('discover-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const credentialId = document.getElementById('discover-credential').value || null;
+        const ipRange = document.getElementById('discover-ip-range').value || null;
         const button = document.getElementById('discover-btn');
         setButtonLoading(button, true, 'Discovering...');
 
         // Clear previous results
         document.getElementById('discover-results').style.display = 'none';
         document.getElementById('discover-results-tbody').innerHTML = '';
+        document.getElementById('discover-device-list').style.display = 'none';
 
         try {
-            await API.startDiscovery(null, credentialId, true);
+            await API.startDiscovery(null, credentialId, true, ipRange);
             showToast('Discovery started', 'info');
             showProgress('discover');
             initDiscoverDeviceProgress();
@@ -839,6 +995,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (lower.includes('huawei') || lower.includes('s5720') || lower.includes('s5700')) return 'Huawei';
         if (lower.includes('hp') || lower.includes('1900') || lower.includes('comware')) return 'HP';
         if (lower.includes('aruba') || lower.includes('iap') || lower.includes('ap-')) return 'Aruba';
+        if (lower.includes('cisco') || lower.includes('ios') || lower.includes('isr') ||
+            lower.includes('asr') || lower.includes('nexus') || lower.includes('catalyst')) return 'Cisco';
         return 'Unknown';
     }
 
@@ -868,11 +1026,64 @@ document.addEventListener('DOMContentLoaded', () => {
     // MAC search state
     let macSearchDevices = [];
 
+    // Initialize MAC search device selection list
+    function initMacSearchDeviceList() {
+        const container = document.getElementById('mac-search-device-list');
+        if (!container) return;
+
+        if (!devices || devices.length === 0) {
+            container.innerHTML = '<p class="empty-state" style="padding: 0.5rem;">No devices available. Add devices first.</p>';
+            updateMacSearchSelectedCount();
+            return;
+        }
+
+        container.innerHTML = devices.map(d => `
+            <div style="display: flex; align-items: center; padding: 0.25rem 0;">
+                <input type="checkbox" class="mac-search-device-checkbox"
+                       id="mac-device-${d.ip}" value="${d.ip}" checked
+                       onchange="updateMacSearchSelectedCount()">
+                <label for="mac-device-${d.ip}" style="margin-left: 0.5rem; flex: 1; cursor: pointer;">
+                    ${d.hostname || d.ip}
+                    <span style="color: var(--text-muted);">(${d.ip})</span>
+                    <span class="badge ${d.status === 'online' ? 'badge-success' : d.status === 'offline' ? 'badge-danger' : 'badge-warning'}" style="margin-left: 0.5rem;">
+                        ${d.status || 'unknown'}
+                    </span>
+                </label>
+            </div>
+        `).join('');
+
+        updateMacSearchSelectedCount();
+    }
+
+    window.selectAllMacSearchDevices = function(select) {
+        const checkboxes = document.querySelectorAll('.mac-search-device-checkbox');
+        checkboxes.forEach(cb => cb.checked = select);
+        updateMacSearchSelectedCount();
+    };
+
+    window.updateMacSearchSelectedCount = function() {
+        const checked = document.querySelectorAll('.mac-search-device-checkbox:checked').length;
+        const countSpan = document.getElementById('mac-search-selected-count');
+        if (countSpan) {
+            countSpan.textContent = `${checked} selected`;
+        }
+    };
+
     // MAC search form
     document.getElementById('mac-search-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const macAddress = document.getElementById('mac-address').value;
+        const credentialId = document.getElementById('mac-search-credential').value || null;
         const button = document.getElementById('mac-search-btn');
+
+        // Get selected devices
+        const checkboxes = document.querySelectorAll('.mac-search-device-checkbox:checked');
+        const selectedDeviceIps = Array.from(checkboxes).map(cb => cb.value);
+
+        if (selectedDeviceIps.length === 0) {
+            showToast('Please select at least one device to search', 'warning');
+            return;
+        }
 
         // Hide previous results
         const resultsContainer = document.getElementById('mac-results');
@@ -885,11 +1096,11 @@ document.addEventListener('DOMContentLoaded', () => {
         setButtonLoading(button, true, 'Searching...');
 
         try {
-            const response = await API.searchMac(macAddress);
+            const response = await API.searchMac(macAddress, selectedDeviceIps, credentialId);
             showToast('MAC search started', 'info');
             showProgress('mac_search');
 
-            // Initialize device list
+            // Initialize device list with selected devices
             if (response.devices && response.devices.length > 0) {
                 macSearchDevices = response.devices;
                 initMacDeviceProgress(macSearchDevices);
@@ -1063,17 +1274,71 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // Collect all configs from devices page
-    window.collectAllConfigs = async function() {
-        const button = document.querySelector('button[onclick="collectAllConfigs()"]');
-        setButtonLoading(button, true, 'Collecting...');
+    // Open collect configs modal
+    window.openCollectConfigsModal = async function() {
+        await loadCredentials();
+        initCollectModalDeviceList();
+        openModal('collect-configs-modal');
+    };
+
+    // Initialize device list in collect modal
+    function initCollectModalDeviceList() {
+        const container = document.getElementById('collect-modal-device-list');
+        if (!devices || devices.length === 0) {
+            container.innerHTML = '<p class="empty-state">No devices available</p>';
+            return;
+        }
+
+        container.innerHTML = devices.map(d => `
+            <div style="display: flex; align-items: center; padding: 0.25rem 0;">
+                <input type="checkbox" class="collect-modal-device-checkbox"
+                       id="collect-device-${d.ip}" value="${d.ip}" checked
+                       onchange="updateCollectModalSelectedCount()">
+                <label for="collect-device-${d.ip}" style="margin-left: 0.5rem; flex: 1;">
+                    ${d.hostname || d.ip}
+                    <span style="color: var(--text-muted);">(${d.ip})</span>
+                    <span class="badge ${d.status === 'online' ? 'badge-success' : d.status === 'offline' ? 'badge-danger' : 'badge-warning'}" style="margin-left: 0.5rem;">
+                        ${d.status}
+                    </span>
+                </label>
+            </div>
+        `).join('');
+
+        updateCollectModalSelectedCount();
+    }
+
+    window.selectAllCollectDevices = function(select) {
+        const checkboxes = document.querySelectorAll('.collect-modal-device-checkbox');
+        checkboxes.forEach(cb => cb.checked = select);
+        updateCollectModalSelectedCount();
+    };
+
+    window.updateCollectModalSelectedCount = function() {
+        const checked = document.querySelectorAll('.collect-modal-device-checkbox:checked').length;
+        document.getElementById('collect-modal-selected-count').textContent = `${checked} selected`;
+    };
+
+    window.startCollectFromModal = async function() {
+        const credentialId = document.getElementById('collect-modal-credential').value || null;
+        const checkboxes = document.querySelectorAll('.collect-modal-device-checkbox:checked');
+        const deviceIps = Array.from(checkboxes).map(cb => cb.value);
+
+        if (deviceIps.length === 0) {
+            showToast('No devices selected', 'warning');
+            return;
+        }
+
+        const button = document.getElementById('collect-modal-btn');
+        setButtonLoading(button, true, 'Starting...');
 
         try {
-            await API.startCollection(null, null);
+            await API.startCollection(deviceIps, credentialId);
             showToast('Collection started', 'info');
+            closeModal('collect-configs-modal');
             showProgress('devices-collect');
         } catch (error) {
             showToast(error.message, 'error');
+        } finally {
             setButtonLoading(button, false);
         }
     };
@@ -1199,6 +1464,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.task_type === 'collect') {
             updateProgressContainer('collect-progress', data);
             updateProgressContainer('devices-collect-progress', data);
+            // Initialize device list on starting phase
+            if (data.phase === 'starting' && data.device_ips) {
+                initCollectDeviceProgress(data.device_ips);
+            }
+            // Update per-device status
+            if (data.device_ip && data.status) {
+                updateCollectDeviceStatus(data.device_ip, data.status);
+            }
         } else if (data.task_type === 'mac_search') {
             updateProgressContainer('mac_search-progress', data);
             // Update per-device status
@@ -1243,15 +1516,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 const scanBtnComplete = document.getElementById('scan-btn');
                 setButtonLoading(scanBtnComplete, false);
                 showToast(`Scan complete: ${data.results.devices_found} devices found`, 'success');
-                await loadDevices();
+                renderScanResults(data.results.devices);
                 break;
             case 'collect':
                 showToast(`Collection complete: ${data.results.success}/${data.results.total} successful`, 'success');
                 // Reset buttons
-                const collectBtn = document.querySelector('button[onclick="collectAllConfigs()"]');
-                setButtonLoading(collectBtn, false);
+                const collectModalBtn = document.getElementById('collect-modal-btn');
+                setButtonLoading(collectModalBtn, false);
                 const collectFormBtn = document.querySelector('#collect-form button[type="submit"]');
                 setButtonLoading(collectFormBtn, false);
+                // Hide device progress after delay
+                hideCollectDeviceProgress();
                 await loadDevices();
                 break;
             case 'status_check':
@@ -1317,8 +1592,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Reset buttons on error
         if (data.task_type === 'collect') {
-            const collectBtn = document.querySelector('button[onclick="collectAllConfigs()"]');
-            setButtonLoading(collectBtn, false);
+            const collectModalBtn = document.getElementById('collect-modal-btn');
+            setButtonLoading(collectModalBtn, false);
             const collectFormBtn = document.querySelector('#collect-form button[type="submit"]');
             setButtonLoading(collectFormBtn, false);
         } else if (data.task_type === 'status_check') {

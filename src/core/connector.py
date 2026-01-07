@@ -3,6 +3,7 @@ from ..drivers.base import BaseDriver
 from ..drivers.huawei_s5720 import HuaweiS5720Driver
 from ..drivers.hp_1900 import HP1900Driver
 from ..drivers.aruba import ArubaDriver
+from ..drivers.cisco_ios import CiscoIOSDriver
 from ..models.device import DeviceVendor
 
 
@@ -13,6 +14,7 @@ class Connector:
         DeviceVendor.HUAWEI: HuaweiS5720Driver,
         DeviceVendor.HP: HP1900Driver,
         DeviceVendor.ARUBA: ArubaDriver,
+        DeviceVendor.CISCO: CiscoIOSDriver,
     }
 
     def __init__(self, timeout: int = 30):
@@ -110,5 +112,7 @@ class Connector:
             return DeviceVendor.HP
         elif any(x in name_lower for x in ['aruba', 'iap', 'ap-']):
             return DeviceVendor.ARUBA
+        elif any(x in name_lower for x in ['cisco', 'ios', 'isr', 'asr', 'csr', 'nexus', 'catalyst', 'c29', 'c35', 'c36', 'c38', 'c93']):
+            return DeviceVendor.CISCO
 
         return DeviceVendor.UNKNOWN
