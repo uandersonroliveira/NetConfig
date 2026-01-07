@@ -2,6 +2,7 @@ from typing import Optional, Type
 from ..drivers.base import BaseDriver
 from ..drivers.huawei_s5720 import HuaweiS5720Driver
 from ..drivers.hp_1900 import HP1900Driver
+from ..drivers.aruba import ArubaDriver
 from ..models.device import DeviceVendor
 
 
@@ -11,6 +12,7 @@ class Connector:
     DRIVERS = {
         DeviceVendor.HUAWEI: HuaweiS5720Driver,
         DeviceVendor.HP: HP1900Driver,
+        DeviceVendor.ARUBA: ArubaDriver,
     }
 
     def __init__(self, timeout: int = 30):

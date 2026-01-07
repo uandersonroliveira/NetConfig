@@ -13,6 +13,7 @@ class DeviceStatus(str, Enum):
 class DeviceVendor(str, Enum):
     HUAWEI = "huawei"
     HP = "hp"
+    ARUBA = "aruba"
     UNKNOWN = "unknown"
 
 

@@ -549,6 +549,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // MAC search state
+    let macSearchDevices = [];
+
     // MAC search form
     document.getElementById('mac-search-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -559,17 +562,67 @@ document.addEventListener('DOMContentLoaded', () => {
         const resultsContainer = document.getElementById('mac-results');
         if (resultsContainer) resultsContainer.style.display = 'none';
 
+        // Hide device progress
+        const deviceProgressContainer = document.getElementById('mac-device-progress');
+        if (deviceProgressContainer) deviceProgressContainer.style.display = 'none';
+
         setButtonLoading(button, true, 'Searching...');
 
         try {
-            await API.searchMac(macAddress);
+            const response = await API.searchMac(macAddress);
             showToast('MAC search started', 'info');
             showProgress('mac_search');
+
+            // Initialize device list
+            if (response.devices && response.devices.length > 0) {
+                macSearchDevices = response.devices;
+                initMacDeviceProgress(macSearchDevices);
+            }
         } catch (error) {
             showToast(error.message, 'error');
             setButtonLoading(button, false);
         }
     });
+
+    function initMacDeviceProgress(devices) {
+        const container = document.getElementById('mac-device-progress');
+        const listContainer = document.getElementById('mac-device-list');
+
+        if (!container || !listContainer) return;
+
+        container.style.display = 'block';
+        listContainer.innerHTML = devices.map(d => `
+            <div class="mac-device-item" id="mac-device-${d.ip.replace(/\./g, '-')}"
+                 style="display: flex; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);">
+                <span class="mac-device-status" style="width: 24px; text-align: center; margin-right: 0.5rem;">
+                    <span style="color: var(--text-muted);">&#9679;</span>
+                </span>
+                <span style="flex: 1;">${d.hostname}</span>
+                <span style="color: var(--text-muted); font-size: 0.85em;">${d.ip}</span>
+                <span class="badge badge-info" style="margin-left: 0.5rem;">${d.vendor}</span>
+            </div>
+        `).join('');
+    }
+
+    function updateMacDeviceStatus(ip, status) {
+        const itemId = `mac-device-${ip.replace(/\./g, '-')}`;
+        const item = document.getElementById(itemId);
+        if (!item) return;
+
+        const statusSpan = item.querySelector('.mac-device-status');
+        if (!statusSpan) return;
+
+        if (status === 'searching') {
+            statusSpan.innerHTML = '<span class="spinner" style="width: 14px; height: 14px;"></span>';
+            item.style.backgroundColor = 'var(--bg-color)';
+        } else if (status === 'complete') {
+            statusSpan.innerHTML = '<span style="color: var(--success-color);">&#10003;</span>';
+            item.style.backgroundColor = '';
+        } else if (status === 'error') {
+            statusSpan.innerHTML = '<span style="color: var(--danger-color);">&#10007;</span>';
+            item.style.backgroundColor = '';
+        }
+    }
 
     function renderMacResults(result) {
         const container = document.getElementById('mac-results');
@@ -830,6 +883,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.task_type === 'collect') {
             updateProgressContainer('collect-progress', data);
             updateProgressContainer('devices-collect-progress', data);
+        } else if (data.task_type === 'mac_search') {
+            updateProgressContainer('mac_search-progress', data);
+            // Update per-device status
+            if (data.device_ip) {
+                updateMacDeviceStatus(data.device_ip, 'searching');
+                // Mark as complete after a short delay
+                setTimeout(() => updateMacDeviceStatus(data.device_ip, 'complete'), 500);
+            }
         } else {
             updateProgressContainer(`${data.task_type}-progress`, data);
         }
@@ -871,6 +932,11 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'mac_search':
                 const macSearchBtn = document.getElementById('mac-search-btn');
                 setButtonLoading(macSearchBtn, false);
+                // Hide device progress
+                const deviceProgressContainer = document.getElementById('mac-device-progress');
+                if (deviceProgressContainer) {
+                    setTimeout(() => { deviceProgressContainer.style.display = 'none'; }, 1000);
+                }
                 const resultsCount = data.results.results ? data.results.results.length : 0;
                 if (data.results.found) {
                     showToast(`Found ${resultsCount} MAC address${resultsCount > 1 ? 'es' : ''}`, 'success');

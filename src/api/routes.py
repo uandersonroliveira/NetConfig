@@ -528,14 +528,25 @@ async def search_mac_live(request: MacSearchRequest, background_tasks: Backgroun
     is_wildcard = mac_finder.is_wildcard_pattern(mac_address)
     display_mac = mac_address if is_wildcard else (mac_finder.normalize_mac(mac_address) or mac_address)
 
+    # Get list of devices for initial response
+    devices = storage.list_devices()
+    device_list = [{'ip': d.ip, 'hostname': d.hostname or d.ip, 'vendor': d.vendor} for d in devices]
+
     def run_mac_search():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
+        device_statuses = {}
+
         def progress_callback(current: int, total: int, ip: str):
+            # Update device status
+            device_statuses[ip] = 'searching'
             loop.run_until_complete(manager.broadcast_progress(
-                'mac_search', current, total, f"Searching {ip}"
+                'mac_search', current, total, f"Searching {ip}",
+                extra={'device_ip': ip, 'device_statuses': device_statuses.copy()}
             ))
+            # Mark as complete after broadcast
+            device_statuses[ip] = 'complete'
 
         results = mac_finder.search_mac(mac_address, progress_callback)
 
@@ -548,7 +559,7 @@ async def search_mac_live(request: MacSearchRequest, background_tasks: Backgroun
         loop.close()
 
     background_tasks.add_task(lambda: executor.submit(run_mac_search).result())
-    return {"message": "MAC search started", "mac_address": display_mac}
+    return {"message": "MAC search started", "mac_address": display_mac, "devices": device_list}
 
 
 # Credential endpoints

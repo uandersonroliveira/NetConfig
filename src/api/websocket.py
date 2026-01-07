@@ -40,9 +40,10 @@ class ConnectionManager:
             self.active_connections.discard(conn)
 
     async def broadcast_progress(self, task_type: str, current: int, total: int,
-                                  message: str, success: bool = True) -> None:
+                                  message: str, success: bool = True,
+                                  extra: Dict[str, Any] = None) -> None:
         """Broadcast a progress update."""
-        await self.broadcast({
+        data = {
             'type': 'progress',
             'task_type': task_type,
             'current': current,
@@ -50,7 +51,10 @@ class ConnectionManager:
             'percentage': round((current / total) * 100, 1) if total > 0 else 0,
             'message': message,
             'success': success
-        })
+        }
+        if extra:
+            data.update(extra)
+        await self.broadcast(data)
 
     async def broadcast_complete(self, task_type: str, results: Dict[str, Any]) -> None:
         """Broadcast task completion."""
