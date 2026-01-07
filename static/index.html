@@ -259,24 +259,18 @@
                                 Examples: <code>00:11:22:*</code>, <code>00:11:??:33:*</code>, <code>0011*</code>
                             </small>
                         </div>
-                        <div class="form-group">
-                            <label>
-                                <input type="checkbox" id="mac-use-cache" checked>
-                                Search from cached data (faster)
-                            </label>
-                        </div>
-                        <button type="submit" class="btn btn-primary">Search</button>
+                        <button type="submit" class="btn btn-primary" id="mac-search-btn">Search</button>
                     </form>
-                    <div id="mac-search-progress" class="progress-container" style="display: none;">
+                    <div id="mac_search-progress" class="progress-container" style="display: none; margin-top: 1rem;">
                         <div class="progress-bar">
                             <div class="progress-bar-fill" style="width: 0%"></div>
                         </div>
                         <div class="progress-text">
-                            <span>Searching...</span>
+                            <span>Searching devices...</span>
                         </div>
                     </div>
                 </div>
-                <div id="mac-results" class="card" style="margin-top: 1rem;"></div>
+                <div id="mac-results" class="card" style="margin-top: 1rem; display: none;"></div>
             </div>
 
             <!-- Credentials Page -->

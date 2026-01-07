@@ -553,19 +553,30 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('mac-search-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const macAddress = document.getElementById('mac-address').value;
-        const useCache = document.getElementById('mac-use-cache').checked;
+        const button = document.getElementById('mac-search-btn');
+
+        // Hide previous results
+        const resultsContainer = document.getElementById('mac-results');
+        if (resultsContainer) resultsContainer.style.display = 'none';
+
+        setButtonLoading(button, true, 'Searching...');
 
         try {
-            const result = await API.searchMac(macAddress, useCache);
-            renderMacResults(result);
+            await API.searchMac(macAddress);
+            showToast('MAC search started', 'info');
+            showProgress('mac_search');
         } catch (error) {
             showToast(error.message, 'error');
+            setButtonLoading(button, false);
         }
     });
 
     function renderMacResults(result) {
         const container = document.getElementById('mac-results');
         const isWildcard = result.is_wildcard;
+
+        // Show the results container
+        container.style.display = 'block';
 
         if (!result.found) {
             container.innerHTML = `
@@ -858,6 +869,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 await loadDevices();
                 break;
             case 'mac_search':
+                const macSearchBtn = document.getElementById('mac-search-btn');
+                setButtonLoading(macSearchBtn, false);
+                const resultsCount = data.results.results ? data.results.results.length : 0;
+                if (data.results.found) {
+                    showToast(`Found ${resultsCount} MAC address${resultsCount > 1 ? 'es' : ''}`, 'success');
+                } else {
+                    showToast('MAC address not found', 'warning');
+                }
                 renderMacResults(data.results);
                 break;
             case 'compare':
@@ -895,6 +914,9 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (data.task_type === 'compare') {
             const compareBtn = document.getElementById('start-compare-btn');
             setButtonLoading(compareBtn, false);
+        } else if (data.task_type === 'mac_search') {
+            const macSearchBtn = document.getElementById('mac-search-btn');
+            setButtonLoading(macSearchBtn, false);
         }
     });
 

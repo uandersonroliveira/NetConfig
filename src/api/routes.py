@@ -523,31 +523,32 @@ async def search_mac(mac_address: str, use_cache: bool = True):
 
 @router.post("/mac/search")
 async def search_mac_live(request: MacSearchRequest, background_tasks: BackgroundTasks):
-    """Search for a MAC address with live device queries."""
-    if request.use_cache:
-        results = mac_finder.search_mac_from_cache(request.mac_address)
-        return {
-            "mac_address": mac_finder.normalize_mac(request.mac_address),
-            "found": len(results) > 0,
-            "results": [r.to_dict() for r in results]
-        }
+    """Search for a MAC address with live device queries across all online devices."""
+    mac_address = request.mac_address
+    is_wildcard = mac_finder.is_wildcard_pattern(mac_address)
+    display_mac = mac_address if is_wildcard else (mac_finder.normalize_mac(mac_address) or mac_address)
 
-    async def run_search():
+    def run_mac_search():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
         def progress_callback(current: int, total: int, ip: str):
-            asyncio.create_task(manager.broadcast_progress(
+            loop.run_until_complete(manager.broadcast_progress(
                 'mac_search', current, total, f"Searching {ip}"
             ))
 
-        results = mac_finder.search_mac(request.mac_address, progress_callback)
+        results = mac_finder.search_mac(mac_address, progress_callback)
 
-        await manager.broadcast_complete('mac_search', {
-            'mac_address': mac_finder.normalize_mac(request.mac_address),
+        loop.run_until_complete(manager.broadcast_complete('mac_search', {
+            'mac_address': display_mac,
+            'is_wildcard': is_wildcard,
             'found': len(results) > 0,
             'results': [r.to_dict() for r in results]
-        })
+        }))
+        loop.close()
 
-    background_tasks.add_task(run_search)
-    return {"message": "MAC search started"}
+    background_tasks.add_task(lambda: executor.submit(run_mac_search).result())
+    return {"message": "MAC search started", "mac_address": display_mac}
 
 
 # Credential endpoints

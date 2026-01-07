@@ -147,16 +147,11 @@ const API = {
     },
 
     // MAC search endpoints
-    async searchMac(macAddress, useCache = true) {
-        return this.request(`/mac/${encodeURIComponent(macAddress)}?use_cache=${useCache}`);
-    },
-
-    async searchMacLive(macAddress) {
+    async searchMac(macAddress) {
         return this.request('/mac/search', {
             method: 'POST',
             body: {
                 mac_address: macAddress,
-                use_cache: false,
             },
         });
     },
