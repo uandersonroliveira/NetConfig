@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: NetConfig network switch configuration manager\n\nFeatures:\n- Device management with Huawei S5720 and HP 1900 support\n- SSH connectivity via Netmiko\n- Configuration collection and analysis\n- Config comparison between devices\n- MAC address search\n- Web interface with real-time progress via WebSocket\n- Credential management with encryption\n- Bulk device import\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+    ]
+  }
+}

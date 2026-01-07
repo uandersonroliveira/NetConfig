@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NetConfig - Network Switch Manager</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <span class="icon">&#128268;</span>
+                <h1>NetConfig</h1>
+            </div>
+            <nav>
+                <ul class="nav-menu">
+                    <li><a href="#" data-page="dashboard" class="active">&#128202; Dashboard</a></li>
+                    <li><a href="#" data-page="devices">&#128421; Devices</a></li>
+                    <li><a href="#" data-page="scan">&#128269; Scan Network</a></li>
+                    <li><a href="#" data-page="collect">&#128230; Collect Configs</a></li>
+                    <li><a href="#" data-page="compare">&#128203; Compare</a></li>
+                    <li><a href="#" data-page="mac-search">&#128279; MAC Search</a></li>
+                    <li><a href="#" data-page="credentials">&#128274; Credentials</a></li>
+                </ul>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard Page -->
+            <div id="page-dashboard" class="page-view active">
+                <div class="page-header">
+                    <h2>Dashboard</h2>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-card primary">
+                        <div class="stat-value" id="stat-total-devices">0</div>
+                        <div class="stat-label">Total Devices</div>
+                    </div>
+                    <div class="stat-card success">
+                        <div class="stat-value" id="stat-online">0</div>
+                        <div class="stat-label">Online</div>
+                    </div>
+                    <div class="stat-card danger">
+                        <div class="stat-value" id="stat-offline">0</div>
+                        <div class="stat-label">Offline</div>
+                    </div>
+                    <div class="stat-card warning">
+                        <div class="stat-value" id="stat-credentials">0</div>
+                        <div class="stat-label">Credentials</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Devices Page -->
+            <div id="page-devices" class="page-view">
+                <div class="page-header">
+                    <h2>Devices</h2>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-secondary" onclick="checkDevicesStatus()">
+                            &#8635; Update Status
+                        </button>
+                        <button class="btn btn-primary" onclick="openModal('add-device-modal')">
+                            + Add Devices
+                        </button>
+                    </div>
+                </div>
+                <div id="status_check-progress" class="progress-container" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-bar-fill" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span>Checking status...</span>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>IP Address</th>
+                                    <th>Hostname</th>
+                                    <th>Vendor</th>
+                                    <th>Status</th>
+                                    <th>Model</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="devices-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Scan Page -->
+            <div id="page-scan" class="page-view">
+                <div class="page-header">
+                    <h2>Scan Network</h2>
+                </div>
+                <div class="card">
+                    <form id="scan-form">
+                        <div class="form-group">
+                            <label for="scan-ip-range">IP Range</label>
+                            <input type="text" id="scan-ip-range" class="form-control"
+                                   placeholder="192.168.1.0/24 or 192.168.1.1-50" required>
+                            <small style="color: var(--text-muted);">
+                                Supports CIDR notation (192.168.1.0/24) or range (192.168.1.1-50)
+                            </small>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Start Scan</button>
+                    </form>
+                    <div id="scan-progress" class="progress-container" style="display: none;">
+                        <div class="progress-bar">
+                            <div class="progress-bar-fill" style="width: 0%"></div>
+                        </div>
+                        <div class="progress-text">
+                            <span>Starting...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Collect Page -->
+            <div id="page-collect" class="page-view">
+                <div class="page-header">
+                    <h2>Collect Configurations</h2>
+                </div>
+                <div class="card">
+                    <form id="collect-form">
+                        <div class="form-group">
+                            <label for="collect-credential">Credential</label>
+                            <select id="collect-credential" class="form-control credential-select">
+                                <option value="">Use Default</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="collect-all" checked> Collect from all devices
+                            </label>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Start Collection</button>
+                    </form>
+                    <div id="collect-progress" class="progress-container" style="display: none;">
+                        <div class="progress-bar">
+                            <div class="progress-bar-fill" style="width: 0%"></div>
+                        </div>
+                        <div class="progress-text">
+                            <span>Starting...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Compare Page -->
+            <div id="page-compare" class="page-view">
+                <div class="page-header">
+                    <h2>Compare Configurations</h2>
+                </div>
+                <div class="card">
+                    <form id="compare-form">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div class="form-group">
+                                <label for="compare-device1">Device 1</label>
+                                <select id="compare-device1" class="form-control" required>
+                                    <option value="">Select device...</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="compare-device2">Device 2</label>
+                                <select id="compare-device2" class="form-control" required>
+                                    <option value="">Select device...</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Compare</button>
+                    </form>
+                </div>
+                <div id="compare-results"></div>
+            </div>
+
+            <!-- MAC Search Page -->
+            <div id="page-mac-search" class="page-view">
+                <div class="page-header">
+                    <h2>MAC Address Search</h2>
+                </div>
+                <div class="card">
+                    <form id="mac-search-form">
+                        <div class="form-group">
+                            <label for="mac-address">MAC Address</label>
+                            <input type="text" id="mac-address" class="form-control"
+                                   placeholder="00:11:22:33:44:55 or 0011.2233.4455" required>
+                        </div>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="mac-use-cache" checked>
+                                Search from cached data (faster)
+                            </label>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Search</button>
+                    </form>
+                    <div id="mac-search-progress" class="progress-container" style="display: none;">
+                        <div class="progress-bar">
+                            <div class="progress-bar-fill" style="width: 0%"></div>
+                        </div>
+                        <div class="progress-text">
+                            <span>Searching...</span>
+                        </div>
+                    </div>
+                </div>
+                <div id="mac-results" class="card" style="margin-top: 1rem;"></div>
+            </div>
+
+            <!-- Credentials Page -->
+            <div id="page-credentials" class="page-view">
+                <div class="page-header">
+                    <h2>Credentials</h2>
+                    <button class="btn btn-primary" onclick="openModal('add-credential-modal')">
+                        + Add Credential
+                    </button>
+                </div>
+                <div class="card">
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Username</th>
+                                    <th>Description</th>
+                                    <th>Default</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="credentials-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Add Device Modal -->
+    <div id="add-device-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Add Devices</h3>
+                <button class="modal-close" onclick="closeModal('add-device-modal')">&times;</button>
+            </div>
+            <form id="add-device-form">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="device-ips">IP Addresses</label>
+                        <textarea name="ips" id="device-ips" class="form-control" rows="4"
+                                  placeholder="Enter IP addresses separated by comma, space, or newline&#10;Example: 192.168.1.1, 192.168.1.2, 192.168.1.3" required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="device-vendor">Vendor</label>
+                        <select name="vendor" id="device-vendor" class="form-control">
+                            <option value="">Auto-detect</option>
+                            <option value="huawei">Huawei</option>
+                            <option value="hp">HP</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="device-credential">Credential</label>
+                        <select name="credential_id" id="device-credential" class="form-control credential-select">
+                            <option value="">Use Default</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('add-device-modal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add Devices</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Credential Modal -->
+    <div id="add-credential-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Add Credential</h3>
+                <button class="modal-close" onclick="closeModal('add-credential-modal')">&times;</button>
+            </div>
+            <form id="add-credential-form">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="cred-username">Username</label>
+                        <input type="text" name="username" id="cred-username" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="cred-password">Password</label>
+                        <input type="password" name="password" id="cred-password" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="cred-description">Description (optional)</label>
+                        <input type="text" name="description" id="cred-description" class="form-control"
+                               placeholder="e.g., Admin account for switches">
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" name="is_default" id="cred-default">
+                            Set as default credential
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('add-credential-modal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add Credential</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Config Viewer Modal -->
+    <div id="config-viewer-modal" class="modal-overlay">
+        <div class="modal" style="max-width: 900px;">
+            <div class="modal-header">
+                <h3>Configuration: <span id="config-device-ip"></span></h3>
+                <button class="modal-close" onclick="closeModal('config-viewer-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <pre class="config-viewer" id="config-viewer-content"></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Scripts -->
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/websocket.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

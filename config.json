@@ -1,0 +1,13 @@
+{
+    "server": {
+        "host": "127.0.0.1",
+        "port": 8080
+    },
+    "ssh": {
+        "timeout": 30,
+        "max_concurrent_connections": 10
+    },
+    "storage": {
+        "data_dir": "data"
+    }
+}
