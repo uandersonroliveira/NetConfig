@@ -50,6 +50,15 @@ class MacSearchRequest(BaseModel):
     use_cache: bool = True
 
 
+# Request models for device operations
+class StatusCheckRequest(BaseModel):
+    device_ips: Optional[List[str]] = None
+
+
+class BulkDeleteRequest(BaseModel):
+    device_ips: List[str]
+
+
 # Device endpoints
 @router.get("/devices")
 async def list_devices():
@@ -76,6 +85,7 @@ async def add_device(device: DeviceCreate):
     return {"message": "Device added", "device": new_device.model_dump()}
 
 
+# IMPORTANT: Specific paths must come BEFORE parameterized paths like /devices/{ip}
 @router.post("/devices/bulk")
 async def add_devices_bulk(bulk: BulkDeviceCreate):
     """Add multiple devices from comma/newline separated text."""
@@ -107,43 +117,6 @@ async def add_devices_bulk(bulk: BulkDeviceCreate):
     }
 
 
-@router.get("/devices/{ip}")
-async def get_device(ip: str):
-    """Get device by IP."""
-    device = storage.get_device(ip)
-    if not device:
-        raise HTTPException(status_code=404, detail="Device not found")
-    return {"device": device.model_dump()}
-
-
-@router.put("/devices/{ip}")
-async def update_device(ip: str, updates: DeviceCreate):
-    """Update device information."""
-    device = storage.get_device(ip)
-    if not device:
-        raise HTTPException(status_code=404, detail="Device not found")
-
-    if updates.hostname:
-        device.hostname = updates.hostname
-    if updates.vendor:
-        device.vendor = updates.vendor
-    if updates.credential_id:
-        device.credential_id = updates.credential_id
-    if updates.notes:
-        device.notes = updates.notes
-
-    storage.save_device(device)
-    return {"message": "Device updated", "device": device.model_dump()}
-
-
-@router.delete("/devices/{ip}")
-async def delete_device(ip: str):
-    """Delete a device."""
-    if storage.delete_device(ip):
-        return {"message": "Device deleted"}
-    raise HTTPException(status_code=404, detail="Device not found")
-
-
 @router.post("/devices/bulk-delete")
 async def bulk_delete_devices(request: BulkDeleteRequest):
     """Delete multiple devices at once."""
@@ -164,15 +137,6 @@ async def bulk_delete_devices(request: BulkDeleteRequest):
         "deleted": deleted,
         "not_found": not_found
     }
-
-
-# Device status check
-class StatusCheckRequest(BaseModel):
-    device_ips: Optional[List[str]] = None
-
-
-class BulkDeleteRequest(BaseModel):
-    device_ips: List[str]
 
 
 @router.post("/devices/check-status")
@@ -227,6 +191,44 @@ async def check_devices_status(request: StatusCheckRequest, background_tasks: Ba
 
     background_tasks.add_task(lambda: executor.submit(run_status_check).result())
     return {"message": "Status check started", "devices_count": len(devices)}
+
+
+# Parameterized device routes (must come AFTER specific paths)
+@router.get("/devices/{ip}")
+async def get_device(ip: str):
+    """Get device by IP."""
+    device = storage.get_device(ip)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return {"device": device.model_dump()}
+
+
+@router.put("/devices/{ip}")
+async def update_device(ip: str, updates: DeviceCreate):
+    """Update device information."""
+    device = storage.get_device(ip)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    if updates.hostname:
+        device.hostname = updates.hostname
+    if updates.vendor:
+        device.vendor = updates.vendor
+    if updates.credential_id:
+        device.credential_id = updates.credential_id
+    if updates.notes:
+        device.notes = updates.notes
+
+    storage.save_device(device)
+    return {"message": "Device updated", "device": device.model_dump()}
+
+
+@router.delete("/devices/{ip}")
+async def delete_device(ip: str):
+    """Delete a device."""
+    if storage.delete_device(ip):
+        return {"message": "Device deleted"}
+    raise HTTPException(status_code=404, detail="Device not found")
 
 
 # Scan endpoints

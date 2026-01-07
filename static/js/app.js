@@ -414,6 +414,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // Collect all configs from devices page
+    window.collectAllConfigs = async function() {
+        try {
+            const result = await API.startCollection(null, null);
+            showToast('Collection started', 'info');
+            showProgress('devices-collect');
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+    };
+
     // Toggle select all devices
     window.toggleSelectAll = function(checkbox) {
         const deviceCheckboxes = document.querySelectorAll('.device-checkbox');
@@ -493,7 +504,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Progress handling
     function showProgress(taskType) {
-        const container = document.getElementById(`${taskType}-progress`);
+        // Handle special cases
+        if (taskType === 'devices-collect') {
+            showProgressContainer('devices-collect-progress');
+        } else {
+            showProgressContainer(`${taskType}-progress`);
+        }
+    }
+
+    function showProgressContainer(containerId) {
+        const container = document.getElementById(containerId);
         if (container) {
             container.style.display = 'block';
             container.querySelector('.progress-bar-fill').style.width = '0%';
@@ -502,7 +522,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function hideProgress(taskType) {
-        const container = document.getElementById(`${taskType}-progress`);
+        // Handle collect events on both pages
+        if (taskType === 'collect') {
+            hideProgressContainer('collect-progress');
+            hideProgressContainer('devices-collect-progress');
+        } else {
+            hideProgressContainer(`${taskType}-progress`);
+        }
+    }
+
+    function hideProgressContainer(containerId) {
+        const container = document.getElementById(containerId);
         if (container) {
             setTimeout(() => {
                 container.style.display = 'none';
@@ -512,12 +542,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // WebSocket event handlers
     wsClient.on('progress', (data) => {
-        const container = document.getElementById(`${data.task_type}-progress`);
+        // Handle collect events on both pages
+        if (data.task_type === 'collect') {
+            updateProgressContainer('collect-progress', data);
+            updateProgressContainer('devices-collect-progress', data);
+        } else {
+            updateProgressContainer(`${data.task_type}-progress`, data);
+        }
+    });
+
+    function updateProgressContainer(containerId, data) {
+        const container = document.getElementById(containerId);
         if (container) {
+            container.style.display = 'block';
             container.querySelector('.progress-bar-fill').style.width = `${data.percentage}%`;
             container.querySelector('.progress-text span').textContent = data.message;
         }
-    });
+    }
 
     wsClient.on('complete', async (data) => {
         hideProgress(data.task_type);

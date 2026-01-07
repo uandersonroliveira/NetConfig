@@ -65,6 +65,9 @@
                         <button class="btn btn-secondary" onclick="checkDevicesStatus()">
                             &#8635; Update Status
                         </button>
+                        <button class="btn btn-secondary" onclick="collectAllConfigs()">
+                            &#128230; Collect Configs
+                        </button>
                         <button class="btn btn-primary" onclick="openModal('add-device-modal')">
                             + Add Devices
                         </button>
@@ -76,6 +79,14 @@
                     </div>
                     <div class="progress-text">
                         <span>Checking status...</span>
+                    </div>
+                </div>
+                <div id="devices-collect-progress" class="progress-container" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-bar-fill" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span>Collecting configs...</span>
                     </div>
                 </div>
                 <div class="card">
@@ -132,7 +143,7 @@
             <!-- Collect Page -->
             <div id="page-collect" class="page-view">
                 <div class="page-header">
-                    <h2>Collect Configurations</h2>
+                    <h2>Collection</h2>
                 </div>
                 <div class="card">
                     <form id="collect-form">
