@@ -253,7 +253,11 @@
                         <div class="form-group">
                             <label for="mac-address">MAC Address</label>
                             <input type="text" id="mac-address" class="form-control"
-                                   placeholder="00:11:22:33:44:55 or 0011.2233.4455" required>
+                                   placeholder="00:11:22:33:44:55 or 00:11:22:* (wildcard)" required>
+                            <small style="color: var(--text-muted);">
+                                Supports wildcards: <code>*</code> matches any sequence, <code>?</code> matches single character.<br>
+                                Examples: <code>00:11:22:*</code>, <code>00:11:??:33:*</code>, <code>0011*</code>
+                            </small>
                         </div>
                         <div class="form-group">
                             <label>

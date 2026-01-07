@@ -565,19 +565,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderMacResults(result) {
         const container = document.getElementById('mac-results');
+        const isWildcard = result.is_wildcard;
+
         if (!result.found) {
             container.innerHTML = `
                 <div class="empty-state">
-                    <p>MAC address not found: ${result.mac_address}</p>
+                    <p>${isWildcard ? 'No MAC addresses matching pattern' : 'MAC address not found'}: ${result.mac_address}</p>
                 </div>
             `;
             return;
         }
 
+        const headerText = isWildcard
+            ? `Found ${result.results.length} MAC address${result.results.length > 1 ? 'es' : ''} matching: ${result.mac_address}`
+            : `Found MAC address: ${result.mac_address}`;
+
         container.innerHTML = `
+            <div class="card-header" style="border-bottom: 1px solid var(--border-color); margin: -1.5rem -1.5rem 1rem -1.5rem; padding: 1rem 1.5rem;">
+                <span class="card-title">${headerText}</span>
+            </div>
             <table>
                 <thead>
                     <tr>
+                        <th>MAC Address</th>
                         <th>Switch</th>
                         <th>Port</th>
                         <th>VLAN</th>
@@ -587,6 +597,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <tbody>
                     ${result.results.map(r => `
                         <tr>
+                            <td><code>${r.mac_address}</code></td>
                             <td>${r.device_hostname} (${r.device_ip})</td>
                             <td>${r.interface}</td>
                             <td>${r.vlan}</td>

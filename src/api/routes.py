@@ -499,14 +499,23 @@ async def get_comparison_report(report_id: str):
 # MAC search endpoints
 @router.get("/mac/{mac_address}")
 async def search_mac(mac_address: str, use_cache: bool = True):
-    """Search for a MAC address across all devices."""
+    """
+    Search for a MAC address across all devices.
+    Supports wildcard patterns: * matches any sequence, ? matches single character.
+    Examples: "00:11:22:*", "00:11:??:33:*", "0011*"
+    """
     if use_cache:
         results = mac_finder.search_mac_from_cache(mac_address)
     else:
         results = mac_finder.search_mac(mac_address)
 
+    # For wildcard searches, show the pattern; for exact, show normalized MAC
+    is_wildcard = mac_finder.is_wildcard_pattern(mac_address)
+    display_mac = mac_address if is_wildcard else (mac_finder.normalize_mac(mac_address) or mac_address)
+
     return {
-        "mac_address": mac_finder.normalize_mac(mac_address),
+        "mac_address": display_mac,
+        "is_wildcard": is_wildcard,
         "found": len(results) > 0,
         "results": [r.to_dict() for r in results]
     }
