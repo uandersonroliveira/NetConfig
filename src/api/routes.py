@@ -45,6 +45,11 @@ class CompareRequest(BaseModel):
     timestamp2: Optional[datetime] = None
 
 
+class BatchCompareRequest(BaseModel):
+    reference_ip: str
+    target_ips: List[str]
+
+
 class MacSearchRequest(BaseModel):
     mac_address: str
     use_cache: bool = True
@@ -367,6 +372,10 @@ async def get_latest_config(ip: str):
     }
 
 
+# Store comparison reports in memory (could be persisted to JSON)
+comparison_reports = []
+
+
 @router.post("/compare")
 async def compare_configs(request: CompareRequest):
     """Compare configurations between two devices or timestamps."""
@@ -387,6 +396,104 @@ async def compare_configs(request: CompareRequest):
 
     comparison = comparator.compare_configs(config1, config2)
     return {"comparison": comparison.model_dump()}
+
+
+@router.post("/compare/batch")
+async def batch_compare_configs(request: BatchCompareRequest, background_tasks: BackgroundTasks):
+    """Compare reference device configuration against multiple target devices."""
+    global comparison_reports
+
+    reference_config = storage.get_latest_config(request.reference_ip)
+    if not reference_config:
+        raise HTTPException(status_code=404, detail=f"No config found for reference device {request.reference_ip}")
+
+    if not request.target_ips:
+        raise HTTPException(status_code=400, detail="No target devices specified")
+
+    reference_ip = request.reference_ip
+    target_ips = request.target_ips.copy()
+
+    def run_batch_compare():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        total = len(target_ips)
+        results = []
+        report_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        for i, target_ip in enumerate(target_ips):
+            loop.run_until_complete(manager.broadcast_progress(
+                'compare', i + 1, total,
+                f"Comparing with {target_ip}",
+                success=True
+            ))
+
+            target_config = storage.get_latest_config(target_ip)
+            if not target_config:
+                results.append({
+                    'target_ip': target_ip,
+                    'success': False,
+                    'error': 'No configuration found'
+                })
+                continue
+
+            try:
+                comparison = comparator.compare_configs(reference_config, target_config)
+                results.append({
+                    'target_ip': target_ip,
+                    'target_hostname': storage.get_device(target_ip).hostname if storage.get_device(target_ip) else target_ip,
+                    'success': True,
+                    'summary': comparison.summary,
+                    'differences': comparison.differences[:50]  # Limit to first 50 diffs
+                })
+            except Exception as e:
+                results.append({
+                    'target_ip': target_ip,
+                    'success': False,
+                    'error': str(e)
+                })
+
+        # Store the report
+        report = {
+            'id': report_id,
+            'timestamp': datetime.now().isoformat(),
+            'reference_ip': reference_ip,
+            'reference_hostname': storage.get_device(reference_ip).hostname if storage.get_device(reference_ip) else reference_ip,
+            'total_targets': total,
+            'successful': sum(1 for r in results if r.get('success')),
+            'failed': sum(1 for r in results if not r.get('success')),
+            'results': results
+        }
+        comparison_reports.insert(0, report)
+        # Keep only last 20 reports
+        if len(comparison_reports) > 20:
+            comparison_reports.pop()
+
+        loop.run_until_complete(manager.broadcast_complete('compare', {
+            'report_id': report_id,
+            'total': total,
+            'successful': report['successful'],
+            'failed': report['failed']
+        }))
+        loop.close()
+
+    background_tasks.add_task(lambda: executor.submit(run_batch_compare).result())
+    return {"message": "Batch comparison started", "target_count": len(target_ips)}
+
+
+@router.get("/compare/reports")
+async def get_comparison_reports():
+    """Get list of comparison reports."""
+    return {"reports": comparison_reports}
+
+
+@router.get("/compare/reports/{report_id}")
+async def get_comparison_report(report_id: str):
+    """Get a specific comparison report by ID."""
+    for report in comparison_reports:
+        if report['id'] == report_id:
+            return {"report": report}
+    raise HTTPException(status_code=404, detail="Report not found")
 
 
 # MAC search endpoints

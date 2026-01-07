@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentPage = 'dashboard';
     let devices = [];
     let credentials = [];
+    let lastComparisonReportId = null;
 
     // DOM Elements
     const navLinks = document.querySelectorAll('.nav-menu a');
@@ -52,19 +53,268 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             case 'compare':
                 await loadDevices();
-                updateCompareSelects();
+                updateCompareReferenceSelect();
+                break;
+            case 'reports':
+                await loadComparisonReports();
                 break;
         }
     }
 
-    function updateCompareSelects() {
-        const select1 = document.getElementById('compare-device1');
-        const select2 = document.getElementById('compare-device2');
-        if (select1 && select2) {
-            const options = '<option value="">Select device...</option>' +
-                devices.map(d => `<option value="${d.ip}">${d.hostname || d.ip}</option>`).join('');
-            select1.innerHTML = options;
-            select2.innerHTML = options;
+    function updateCompareReferenceSelect() {
+        const select = document.getElementById('compare-reference');
+        if (select) {
+            const options = '<option value="">Select reference device...</option>' +
+                devices.map(d => `<option value="${d.ip}">${d.hostname || d.ip} (${d.ip})</option>`).join('');
+            select.innerHTML = options;
+
+            // Add change listener
+            select.onchange = function() {
+                updateCompareTargetsList(this.value);
+            };
+        }
+        // Reset targets list
+        updateCompareTargetsList(null);
+    }
+
+    function updateCompareTargetsList(referenceIp) {
+        const container = document.getElementById('compare-targets-list');
+        const startBtn = document.getElementById('start-compare-btn');
+        const countSpan = document.getElementById('compare-selected-count');
+
+        if (!container) return;
+
+        if (!referenceIp) {
+            container.innerHTML = '<p class="empty-state" style="padding: 1rem;">Select a reference device first</p>';
+            if (startBtn) startBtn.disabled = true;
+            if (countSpan) countSpan.textContent = '0 selected';
+            return;
+        }
+
+        const targetDevices = devices.filter(d => d.ip !== referenceIp);
+
+        if (targetDevices.length === 0) {
+            container.innerHTML = '<p class="empty-state" style="padding: 1rem;">No other devices available for comparison</p>';
+            if (startBtn) startBtn.disabled = true;
+            if (countSpan) countSpan.textContent = '0 selected';
+            return;
+        }
+
+        container.innerHTML = targetDevices.map(d => `
+            <div style="padding: 0.5rem; border-bottom: 1px solid var(--border-color);">
+                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                    <input type="checkbox" class="compare-target-checkbox" value="${d.ip}" onchange="updateCompareSelectedCount()">
+                    <span>${d.hostname || d.ip}</span>
+                    <span style="color: var(--text-muted); font-size: 0.85em;">(${d.ip})</span>
+                    <span class="badge ${getStatusBadgeClass(d.status)}" style="margin-left: auto;">${d.status || 'unknown'}</span>
+                </label>
+            </div>
+        `).join('');
+
+        updateCompareSelectedCount();
+    }
+
+    window.updateCompareSelectedCount = function() {
+        const checkboxes = document.querySelectorAll('.compare-target-checkbox:checked');
+        const countSpan = document.getElementById('compare-selected-count');
+        const startBtn = document.getElementById('start-compare-btn');
+
+        if (countSpan) countSpan.textContent = `${checkboxes.length} selected`;
+        if (startBtn) startBtn.disabled = checkboxes.length === 0;
+    };
+
+    window.selectAllCompareTargets = function(selectAll) {
+        const checkboxes = document.querySelectorAll('.compare-target-checkbox');
+        checkboxes.forEach(cb => cb.checked = selectAll);
+        updateCompareSelectedCount();
+    };
+
+    window.startBatchComparison = async function() {
+        const referenceIp = document.getElementById('compare-reference').value;
+        const targetCheckboxes = document.querySelectorAll('.compare-target-checkbox:checked');
+        const targetIps = Array.from(targetCheckboxes).map(cb => cb.value);
+        const button = document.getElementById('start-compare-btn');
+
+        if (!referenceIp) {
+            showToast('Please select a reference device', 'warning');
+            return;
+        }
+
+        if (targetIps.length === 0) {
+            showToast('Please select at least one target device', 'warning');
+            return;
+        }
+
+        setButtonLoading(button, true, 'Comparing...');
+
+        try {
+            await API.batchCompare(referenceIp, targetIps);
+            showToast('Comparison started', 'info');
+            showProgress('compare');
+
+            // Hide complete section while comparison runs
+            const completeSection = document.getElementById('compare-complete');
+            if (completeSection) completeSection.style.display = 'none';
+        } catch (error) {
+            showToast(error.message, 'error');
+            setButtonLoading(button, false);
+        }
+    };
+
+    window.viewComparisonReport = function() {
+        if (lastComparisonReportId) {
+            // Navigate to reports page and show the specific report
+            navigateTo('reports');
+            setTimeout(() => viewReportDetails(lastComparisonReportId), 100);
+        }
+    };
+
+    async function loadComparisonReports() {
+        try {
+            const response = await API.getComparisonReports();
+            renderComparisonReportsList(response.reports);
+        } catch (error) {
+            showToast('Failed to load comparison reports', 'error');
+        }
+    }
+
+    function renderComparisonReportsList(reports) {
+        const container = document.getElementById('comparison-reports-list');
+        if (!container) return;
+
+        if (!reports || reports.length === 0) {
+            container.innerHTML = '<p class="empty-state">No comparison reports yet. Run a comparison from the Compare page.</p>';
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Reference</th>
+                            <th>Targets</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${reports.map(report => `
+                            <tr>
+                                <td>${new Date(report.timestamp).toLocaleString()}</td>
+                                <td>${report.reference_ip}</td>
+                                <td>${report.total_targets} device(s)</td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary" onclick="viewReportDetails('${report.id}')">
+                                        View Details
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    window.viewReportDetails = async function(reportId) {
+        try {
+            const response = await API.getComparisonReport(reportId);
+            renderReportDetails(response.report);
+        } catch (error) {
+            showToast('Failed to load report details', 'error');
+        }
+    };
+
+    function renderReportDetails(report) {
+        const container = document.getElementById('comparison-reports-list');
+        if (!container) return;
+
+        const resultsHtml = report.results.map(r => {
+            if (!r.success) {
+                return `
+                    <div class="card" style="margin-top: 1rem;">
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                            <span class="card-title">${r.target_ip}</span>
+                            <span class="badge badge-danger">Failed</span>
+                        </div>
+                        <div style="padding: 0.75rem; color: var(--danger-color);">
+                            ${r.error || 'Unknown error'}
+                        </div>
+                    </div>
+                `;
+            }
+
+            const hasDifferences = r.summary && (r.summary.lines_added > 0 || r.summary.lines_removed > 0);
+
+            return `
+                <div class="card" style="margin-top: 1rem;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="card-title">${r.target_hostname || r.target_ip}</span>
+                        <span class="badge ${hasDifferences ? 'badge-warning' : 'badge-success'}">
+                            ${hasDifferences ? `${r.summary.lines_added + r.summary.lines_removed} differences` : 'Identical'}
+                        </span>
+                    </div>
+                    ${hasDifferences && r.summary ? `
+                        <div style="padding: 0.75rem;">
+                            <p><strong>Lines added:</strong> ${r.summary.lines_added} | <strong>Lines removed:</strong> ${r.summary.lines_removed}</p>
+                            ${r.differences && r.differences.length > 0 ? `
+                                <details style="margin-top: 0.5rem;">
+                                    <summary style="cursor: pointer; color: var(--primary-color);">Show differences</summary>
+                                    <div class="diff-viewer" style="margin-top: 0.5rem; max-height: 300px; overflow-y: auto;">
+                                        ${r.differences.map(diff => `
+                                            <div class="diff-line ${diff.type === 'added' ? 'diff-added' : ''}${diff.type === 'removed' ? 'diff-removed' : ''}">
+                                                ${diff.type === 'added' ? '+' : diff.type === 'removed' ? '-' : ' '} ${diff.content || diff.line || ''}
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </details>
+                            ` : ''}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }).join('');
+
+        container.innerHTML = `
+            <div style="margin-bottom: 1rem;">
+                <button class="btn btn-secondary" onclick="loadComparisonReports()">
+                    &larr; Back to Reports
+                </button>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Comparison Report</span>
+                </div>
+                <div style="padding: 0.75rem;">
+                    <p><strong>Reference Device:</strong> ${report.reference_hostname || report.reference_ip} (${report.reference_ip})</p>
+                    <p><strong>Date:</strong> ${new Date(report.timestamp).toLocaleString()}</p>
+                    <p><strong>Compared:</strong> ${report.successful} successful, ${report.failed} failed out of ${report.total_targets} device(s)</p>
+                </div>
+            </div>
+            <h4 style="margin-top: 1rem;">Results</h4>
+            ${resultsHtml}
+        `;
+    }
+
+    // Make loadComparisonReports accessible globally
+    window.loadComparisonReports = loadComparisonReports;
+
+    // Button loading state helpers
+    function setButtonLoading(button, loading, originalText = null) {
+        if (!button) return;
+
+        if (loading) {
+            button.disabled = true;
+            button.style.opacity = '0.6';
+            button.dataset.originalText = button.innerHTML;
+            button.innerHTML = `<span class="spinner"></span> ${originalText || 'Loading...'}`;
+        } else {
+            button.disabled = false;
+            button.style.opacity = '1';
+            if (button.dataset.originalText) {
+                button.innerHTML = button.dataset.originalText;
+            }
         }
     }
 
@@ -279,6 +529,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Collect form
     document.getElementById('collect-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
+        const button = e.target.querySelector('button[type="submit"]');
+        setButtonLoading(button, true, 'Collecting...');
+
         const selectedDevices = Array.from(document.querySelectorAll('.device-checkbox:checked'))
             .map(cb => cb.value);
         const credentialId = document.getElementById('collect-credential').value || null;
@@ -292,6 +545,7 @@ document.addEventListener('DOMContentLoaded', () => {
             showProgress('collect');
         } catch (error) {
             showToast(error.message, 'error');
+            setButtonLoading(button, false);
         }
     });
 
@@ -405,23 +659,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Check device status
     window.checkDevicesStatus = async function() {
+        const button = document.querySelector('button[onclick="checkDevicesStatus()"]');
+        setButtonLoading(button, true, 'Checking...');
+
         try {
             await API.checkDevicesStatus();
             showToast('Status check started', 'info');
             showProgress('status_check');
         } catch (error) {
             showToast(error.message, 'error');
+            setButtonLoading(button, false);
         }
     };
 
     // Collect all configs from devices page
     window.collectAllConfigs = async function() {
+        const button = document.querySelector('button[onclick="collectAllConfigs()"]');
+        setButtonLoading(button, true, 'Collecting...');
+
         try {
-            const result = await API.startCollection(null, null);
+            await API.startCollection(null, null);
             showToast('Collection started', 'info');
             showProgress('devices-collect');
         } catch (error) {
             showToast(error.message, 'error');
+            setButtonLoading(button, false);
         }
     };
 
@@ -570,14 +832,38 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             case 'collect':
                 showToast(`Collection complete: ${data.results.success}/${data.results.total} successful`, 'success');
+                // Reset buttons
+                const collectBtn = document.querySelector('button[onclick="collectAllConfigs()"]');
+                setButtonLoading(collectBtn, false);
+                const collectFormBtn = document.querySelector('#collect-form button[type="submit"]');
+                setButtonLoading(collectFormBtn, false);
                 await loadDevices();
                 break;
             case 'status_check':
                 showToast(`Status check complete: ${data.results.online} online, ${data.results.offline} offline`, 'success');
+                // Reset button
+                const statusBtn = document.querySelector('button[onclick="checkDevicesStatus()"]');
+                setButtonLoading(statusBtn, false);
                 await loadDevices();
                 break;
             case 'mac_search':
                 renderMacResults(data.results);
+                break;
+            case 'compare':
+                lastComparisonReportId = data.results.report_id;
+                showToast(`Comparison complete: ${data.results.total} device(s) compared`, 'success');
+                // Reset button
+                const compareBtn = document.getElementById('start-compare-btn');
+                setButtonLoading(compareBtn, false);
+                // Show complete section with view report button
+                const completeSection = document.getElementById('compare-complete');
+                const summaryText = document.getElementById('compare-complete-summary');
+                if (completeSection) {
+                    completeSection.style.display = 'block';
+                    if (summaryText) {
+                        summaryText.textContent = `Compared ${data.results.total} device(s) against reference`;
+                    }
+                }
                 break;
         }
     });
@@ -585,6 +871,20 @@ document.addEventListener('DOMContentLoaded', () => {
     wsClient.on('taskError', (data) => {
         hideProgress(data.task_type);
         showToast(data.error, 'error');
+
+        // Reset buttons on error
+        if (data.task_type === 'collect') {
+            const collectBtn = document.querySelector('button[onclick="collectAllConfigs()"]');
+            setButtonLoading(collectBtn, false);
+            const collectFormBtn = document.querySelector('#collect-form button[type="submit"]');
+            setButtonLoading(collectFormBtn, false);
+        } else if (data.task_type === 'status_check') {
+            const statusBtn = document.querySelector('button[onclick="checkDevicesStatus()"]');
+            setButtonLoading(statusBtn, false);
+        } else if (data.task_type === 'compare') {
+            const compareBtn = document.getElementById('start-compare-btn');
+            setButtonLoading(compareBtn, false);
+        }
     });
 
     // Toast notifications

@@ -554,14 +554,24 @@ tr:hover {
     display: inline-block;
     width: 1rem;
     height: 1rem;
-    border: 2px solid var(--border-color);
-    border-top-color: var(--primary-color);
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: currentColor;
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
 }
 
+.btn-secondary .spinner {
+    border-color: var(--border-color);
+    border-top-color: var(--text-color);
+}
+
 @keyframes spin {
     to { transform: rotate(360deg); }
+}
+
+/* Button disabled state */
+.btn:disabled {
+    cursor: not-allowed;
 }
 
 /* Action buttons in table */

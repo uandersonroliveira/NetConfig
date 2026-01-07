@@ -128,6 +128,24 @@ const API = {
         });
     },
 
+    async batchCompare(referenceIp, targetIps) {
+        return this.request('/compare/batch', {
+            method: 'POST',
+            body: {
+                reference_ip: referenceIp,
+                target_ips: targetIps,
+            },
+        });
+    },
+
+    async getComparisonReports() {
+        return this.request('/compare/reports');
+    },
+
+    async getComparisonReport(reportId) {
+        return this.request(`/compare/reports/${reportId}`);
+    },
+
     // MAC search endpoints
     async searchMac(macAddress, useCache = true) {
         return this.request(`/mac/${encodeURIComponent(macAddress)}?use_cache=${useCache}`);
