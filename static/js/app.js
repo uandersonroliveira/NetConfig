@@ -40,9 +40,11 @@ document.addEventListener('DOMContentLoaded', () => {
         switch (page) {
             case 'dashboard':
                 await loadDashboard();
+                await loadCredentials();
                 break;
             case 'devices':
                 await loadDevices();
+                await loadCredentials();
                 break;
             case 'credentials':
                 await loadCredentials();
@@ -55,8 +57,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 await loadDevices();
                 updateCompareReferenceSelect();
                 break;
+            case 'scan':
+                await loadCredentials();
+                break;
             case 'reports':
                 await loadComparisonReports();
+                break;
+            case 'logs':
+                await loadDevices();
+                await loadCredentials();
+                initLogsDeviceList();
                 break;
         }
     }
@@ -300,6 +310,205 @@ document.addEventListener('DOMContentLoaded', () => {
     // Make loadComparisonReports accessible globally
     window.loadComparisonReports = loadComparisonReports;
 
+    // ==================== LOG COLLECTION ====================
+
+    function initLogsDeviceList() {
+        const container = document.getElementById('logs-device-list');
+        if (!container) return;
+
+        if (devices.length === 0) {
+            container.innerHTML = '<p class="empty-state" style="padding: 1rem;">No devices available. Add devices first.</p>';
+            return;
+        }
+
+        container.innerHTML = devices.map(d => `
+            <div style="padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);">
+                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                    <input type="checkbox" class="logs-device-checkbox" value="${d.ip}" onchange="updateLogsSelectedCount()">
+                    <span style="flex: 1;">${d.hostname || d.ip}</span>
+                    <span style="color: var(--text-muted); font-size: 0.85em;">${d.ip}</span>
+                    <span class="badge ${getStatusBadgeClass(d.status)}" style="margin-left: 0.5rem;">${d.status || 'unknown'}</span>
+                    <span class="badge badge-info" style="margin-left: 0.25rem;">${d.vendor}</span>
+                </label>
+            </div>
+        `).join('');
+
+        updateLogsSelectedCount();
+
+        // Hide previous results
+        const resultsContainer = document.getElementById('logs-results');
+        if (resultsContainer) resultsContainer.style.display = 'none';
+        const progressContainer = document.getElementById('logs-device-progress');
+        if (progressContainer) progressContainer.style.display = 'none';
+    }
+
+    window.updateLogsSelectedCount = function() {
+        const checkboxes = document.querySelectorAll('.logs-device-checkbox:checked');
+        const countSpan = document.getElementById('logs-selected-count');
+        if (countSpan) countSpan.textContent = `${checkboxes.length} selected`;
+    };
+
+    window.selectAllLogDevices = function(selectAll) {
+        const checkboxes = document.querySelectorAll('.logs-device-checkbox');
+        checkboxes.forEach(cb => cb.checked = selectAll);
+        updateLogsSelectedCount();
+    };
+
+    // Log collection form handler
+    document.getElementById('logs-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const selectedCheckboxes = document.querySelectorAll('.logs-device-checkbox:checked');
+        const deviceIps = Array.from(selectedCheckboxes).map(cb => cb.value);
+
+        if (deviceIps.length === 0) {
+            showToast('Please select at least one device', 'warning');
+            return;
+        }
+
+        const credentialId = document.getElementById('logs-credential').value || null;
+        const button = document.getElementById('logs-collect-btn');
+
+        // Hide previous results
+        const resultsContainer = document.getElementById('logs-results');
+        if (resultsContainer) resultsContainer.style.display = 'none';
+
+        setButtonLoading(button, true, 'Collecting...');
+
+        try {
+            const response = await API.collectLogs(deviceIps, credentialId);
+            showToast('Log collection started', 'info');
+            showProgress('logs');
+
+            // Initialize device progress list
+            if (response.devices && response.devices.length > 0) {
+                initLogsDeviceProgress(response.devices);
+            }
+        } catch (error) {
+            showToast(error.message, 'error');
+            setButtonLoading(button, false);
+        }
+    });
+
+    function initLogsDeviceProgress(deviceList) {
+        const container = document.getElementById('logs-device-progress');
+        const listContainer = document.getElementById('logs-device-status-list');
+
+        if (!container || !listContainer) return;
+
+        container.style.display = 'block';
+        listContainer.innerHTML = deviceList.map(d => `
+            <div class="logs-device-item" id="logs-device-${d.ip.replace(/\./g, '-')}"
+                 style="display: flex; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);">
+                <span class="logs-device-status" style="width: 24px; text-align: center; margin-right: 0.5rem;">
+                    <span style="color: var(--text-muted);">&#9679;</span>
+                </span>
+                <span style="flex: 1;">${d.hostname}</span>
+                <span style="color: var(--text-muted); font-size: 0.85em;">${d.ip}</span>
+                <span class="badge badge-info" style="margin-left: 0.5rem;">${d.vendor}</span>
+            </div>
+        `).join('');
+    }
+
+    function updateLogsDeviceStatus(ip, status) {
+        const itemId = `logs-device-${ip.replace(/\./g, '-')}`;
+        const item = document.getElementById(itemId);
+        if (!item) return;
+
+        const statusSpan = item.querySelector('.logs-device-status');
+        if (!statusSpan) return;
+
+        if (status === 'collecting') {
+            statusSpan.innerHTML = '<span class="spinner" style="width: 14px; height: 14px;"></span>';
+            item.style.backgroundColor = 'var(--bg-color)';
+        } else if (status === 'success') {
+            statusSpan.innerHTML = '<span style="color: var(--success-color);">&#10003;</span>';
+            item.style.backgroundColor = '';
+        } else if (status === 'error') {
+            statusSpan.innerHTML = '<span style="color: var(--danger-color);">&#10007;</span>';
+            item.style.backgroundColor = '';
+        }
+    }
+
+    function renderLogsResults(results) {
+        const container = document.getElementById('logs-results');
+        const listContainer = document.getElementById('logs-results-list');
+
+        if (!container || !listContainer) return;
+
+        container.style.display = 'block';
+
+        if (!results || results.length === 0) {
+            listContainer.innerHTML = '<p class="empty-state">No logs collected</p>';
+            return;
+        }
+
+        listContainer.innerHTML = `
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Device</th>
+                            <th>Status</th>
+                            <th>Size</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${results.map(r => `
+                            <tr>
+                                <td>${r.hostname} (${r.device_ip})</td>
+                                <td>
+                                    <span class="badge ${r.success ? 'badge-success' : 'badge-danger'}">
+                                        ${r.success ? 'Success' : 'Failed'}
+                                    </span>
+                                </td>
+                                <td>${r.success ? formatBytes(r.log_size) : (r.error || 'Error')}</td>
+                                <td>
+                                    ${r.success ? `
+                                        <button class="btn btn-sm btn-primary" onclick="viewDeviceLogs('${r.device_ip}')">
+                                            View Logs
+                                        </button>
+                                    ` : ''}
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    function formatBytes(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    window.viewDeviceLogs = async function(ip) {
+        try {
+            const response = await API.getDeviceLogs(ip);
+            showLogsModal(response);
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+    };
+
+    function showLogsModal(logData) {
+        // Reuse config viewer modal for logs
+        const modal = document.getElementById('config-viewer-modal');
+        const titleSpan = document.getElementById('config-device-ip');
+        const contentPre = document.getElementById('config-viewer-content');
+
+        if (modal && titleSpan && contentPre) {
+            titleSpan.textContent = `${logData.hostname} (${logData.device_ip}) - Logs`;
+            contentPre.textContent = logData.logs || 'No logs available';
+            openModal('config-viewer-modal');
+        }
+    }
+
     // Button loading state helpers
     function setButtonLoading(button, loading, originalText = null) {
         if (!button) return;
@@ -454,17 +663,25 @@ document.addEventListener('DOMContentLoaded', () => {
         selects.forEach(select => {
             const currentValue = select.value;
             select.innerHTML = '<option value="">Use Default</option>' +
-                credentials.map(c => `
-                    <option value="${c.id}" ${c.is_default ? 'selected' : ''}>
-                        ${c.username}${c.is_default ? ' (default)' : ''}
-                    </option>
-                `).join('');
+                credentials.map(c => {
+                    const desc = c.description ? ` - ${c.description}` : '';
+                    const defaultTag = c.is_default ? ' (default)' : '';
+                    return `
+                        <option value="${c.id}" ${c.is_default ? 'selected' : ''}>
+                            ${c.username}${desc}${defaultTag}
+                        </option>
+                    `;
+                }).join('');
             if (currentValue) select.value = currentValue;
         });
     }
 
     // Modal handling
-    window.openModal = function(modalId) {
+    window.openModal = async function(modalId) {
+        // Ensure credentials are loaded for modals that need them
+        if (modalId === 'add-device-modal' || modalId === 'add-credential-modal') {
+            await loadCredentials();
+        }
         document.getElementById(modalId).classList.add('active');
     };
 
@@ -516,6 +733,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('scan-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const ipRange = document.getElementById('scan-ip-range').value;
+        const button = document.getElementById('scan-btn');
+        setButtonLoading(button, true, 'Scanning...');
 
         try {
             await API.startScan(ipRange);
@@ -523,8 +742,105 @@ document.addEventListener('DOMContentLoaded', () => {
             showProgress('scan');
         } catch (error) {
             showToast(error.message, 'error');
+            setButtonLoading(button, false);
         }
     });
+
+    // Discovery form
+    document.getElementById('discover-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const credentialId = document.getElementById('discover-credential').value || null;
+        const button = document.getElementById('discover-btn');
+        setButtonLoading(button, true, 'Discovering...');
+
+        // Clear previous results
+        document.getElementById('discover-results').style.display = 'none';
+        document.getElementById('discover-results-tbody').innerHTML = '';
+
+        try {
+            await API.startDiscovery(null, credentialId, true);
+            showToast('Discovery started', 'info');
+            showProgress('discover');
+            initDiscoverDeviceProgress();
+        } catch (error) {
+            showToast(error.message, 'error');
+            setButtonLoading(button, false);
+        }
+    });
+
+    // Initialize discover device progress list
+    function initDiscoverDeviceProgress() {
+        const container = document.getElementById('discover-device-progress');
+        const listContainer = document.getElementById('discover-device-list');
+        listContainer.style.display = 'block';
+        container.innerHTML = '<p class="empty-state">Waiting for device information...</p>';
+    }
+
+    // Update discover device status
+    function updateDiscoverDeviceStatus(deviceIp, status, message = '') {
+        const container = document.getElementById('discover-device-progress');
+
+        // Clear empty state message
+        if (container.querySelector('.empty-state')) {
+            container.innerHTML = '';
+        }
+
+        let deviceRow = container.querySelector(`[data-device-ip="${deviceIp}"]`);
+        if (!deviceRow) {
+            deviceRow = document.createElement('div');
+            deviceRow.className = 'device-progress-item';
+            deviceRow.setAttribute('data-device-ip', deviceIp);
+            deviceRow.innerHTML = `
+                <span class="device-ip">${deviceIp}</span>
+                <span class="device-status"></span>
+            `;
+            container.appendChild(deviceRow);
+        }
+
+        const statusSpan = deviceRow.querySelector('.device-status');
+        if (status === 'in_progress') {
+            statusSpan.innerHTML = '<span class="spinner-small"></span> Discovering...';
+            statusSpan.className = 'device-status status-progress';
+        } else if (status === 'completed') {
+            statusSpan.innerHTML = `&#10004; ${message || 'Done'}`;
+            statusSpan.className = 'device-status status-success';
+        } else if (status === 'failed') {
+            statusSpan.innerHTML = `&#10008; ${message || 'Failed'}`;
+            statusSpan.className = 'device-status status-error';
+        }
+    }
+
+    // Render discovered neighbors
+    function renderDiscoverResults(neighbors, newDevices) {
+        const tbody = document.getElementById('discover-results-tbody');
+        const resultsContainer = document.getElementById('discover-results');
+
+        if (!neighbors || neighbors.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No neighbors discovered</td></tr>';
+        } else {
+            tbody.innerHTML = neighbors.map(n => `
+                <tr>
+                    <td>${n.neighbor_device || '-'}</td>
+                    <td>${n.source_device || '-'}</td>
+                    <td><span class="badge ${n.source === 'lldp' ? 'badge-primary' : 'badge-warning'}">${(n.source || '').toUpperCase()}</span></td>
+                    <td>${n.local_interface || '-'}</td>
+                    <td>${n.neighbor_interface || '-'}</td>
+                    <td>${getVendorFromNeighborName(n.neighbor_device)}</td>
+                </tr>
+            `).join('');
+        }
+        resultsContainer.style.display = 'block';
+    }
+
+    // Detect vendor from neighbor name
+    function getVendorFromNeighborName(name) {
+        if (!name) return 'Unknown';
+        const lower = name.toLowerCase();
+        if (lower.includes('huawei') || lower.includes('s5720') || lower.includes('s5700')) return 'Huawei';
+        if (lower.includes('hp') || lower.includes('1900') || lower.includes('comware')) return 'HP';
+        if (lower.includes('aruba') || lower.includes('iap') || lower.includes('ap-')) return 'Aruba';
+        return 'Unknown';
+    }
 
     // Collect form
     document.getElementById('collect-form')?.addEventListener('submit', async (e) => {
@@ -891,6 +1207,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Mark as complete after a short delay
                 setTimeout(() => updateMacDeviceStatus(data.device_ip, 'complete'), 500);
             }
+        } else if (data.task_type === 'logs') {
+            updateProgressContainer('logs-progress', data);
+            // Update per-device status
+            if (data.device_ip && data.status) {
+                updateLogsDeviceStatus(data.device_ip, data.status);
+            }
+        } else if (data.task_type === 'discover') {
+            updateProgressContainer('discover-progress', data);
+            // Update per-device status
+            if (data.device_ip && data.status) {
+                const message = data.lldp_count !== undefined ?
+                    `LLDP: ${data.lldp_count}, CDP: ${data.cdp_count}` : '';
+                updateDiscoverDeviceStatus(data.device_ip, data.status, message);
+            }
         } else {
             updateProgressContainer(`${data.task_type}-progress`, data);
         }
@@ -910,6 +1240,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         switch (data.task_type) {
             case 'scan':
+                const scanBtnComplete = document.getElementById('scan-btn');
+                setButtonLoading(scanBtnComplete, false);
                 showToast(`Scan complete: ${data.results.devices_found} devices found`, 'success');
                 await loadDevices();
                 break;
@@ -961,6 +1293,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
                 break;
+            case 'logs':
+                const logsBtn = document.getElementById('logs-collect-btn');
+                setButtonLoading(logsBtn, false);
+                showToast(`Log collection complete: ${data.results.success}/${data.results.total} successful`, 'success');
+                // Render results
+                renderLogsResults(data.results.results);
+                break;
+            case 'discover':
+                const discoverBtn = document.getElementById('discover-btn');
+                setButtonLoading(discoverBtn, false);
+                const neighborsFound = data.results.neighbors_found || 0;
+                showToast(`Discovery complete: ${neighborsFound} neighbor(s) found`, 'success');
+                // Render results
+                renderDiscoverResults(data.results.neighbors, data.results.new_devices);
+                break;
         }
     });
 
@@ -983,6 +1330,15 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (data.task_type === 'mac_search') {
             const macSearchBtn = document.getElementById('mac-search-btn');
             setButtonLoading(macSearchBtn, false);
+        } else if (data.task_type === 'logs') {
+            const logsBtn = document.getElementById('logs-collect-btn');
+            setButtonLoading(logsBtn, false);
+        } else if (data.task_type === 'discover') {
+            const discoverBtn = document.getElementById('discover-btn');
+            setButtonLoading(discoverBtn, false);
+        } else if (data.task_type === 'scan') {
+            const scanBtn = document.getElementById('scan-btn');
+            setButtonLoading(scanBtn, false);
         }
     });
 

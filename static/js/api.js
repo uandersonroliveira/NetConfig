@@ -96,6 +96,17 @@ const API = {
         });
     },
 
+    async startDiscovery(deviceIps = null, credentialId = null, addNeighbors = true) {
+        return this.request('/discover', {
+            method: 'POST',
+            body: {
+                device_ips: deviceIps,
+                credential_id: credentialId,
+                add_neighbors: addNeighbors,
+            },
+        });
+    },
+
     // Collection endpoints
     async startCollection(deviceIps = null, credentialId = null) {
         return this.request('/collect', {
@@ -144,6 +155,25 @@ const API = {
 
     async getComparisonReport(reportId) {
         return this.request(`/compare/reports/${reportId}`);
+    },
+
+    // Log collection endpoints
+    async collectLogs(deviceIps, credentialId = null) {
+        return this.request('/logs/collect', {
+            method: 'POST',
+            body: {
+                device_ips: deviceIps,
+                credential_id: credentialId,
+            },
+        });
+    },
+
+    async getDeviceLogs(ip) {
+        return this.request(`/logs/${ip}`);
+    },
+
+    async listCollectedLogs() {
+        return this.request('/logs');
     },
 
     // MAC search endpoints

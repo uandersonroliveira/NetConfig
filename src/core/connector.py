@@ -1,4 +1,4 @@
-from typing import Optional, Type
+from typing import Optional, Type, List, Dict, Any
 from ..drivers.base import BaseDriver
 from ..drivers.huawei_s5720 import HuaweiS5720Driver
 from ..drivers.hp_1900 import HP1900Driver
@@ -66,3 +66,49 @@ class Connector:
             return False, str(e)
         except Exception as e:
             return False, f"Unexpected error: {str(e)}"
+
+    def discover_neighbors(self, ip: str, username: str, password: str,
+                          vendor: DeviceVendor) -> Dict[str, Any]:
+        """
+        Discover neighbors via LLDP/CDP on a device.
+
+        Returns:
+            Dict with 'lldp_neighbors' and 'cdp_neighbors' lists
+        """
+        result = {
+            'device_ip': ip,
+            'lldp_neighbors': [],
+            'cdp_neighbors': [],
+            'error': None
+        }
+
+        try:
+            driver = self.create_connection(ip, username, password, vendor)
+            try:
+                result['lldp_neighbors'] = driver.get_lldp_neighbors()
+            except Exception:
+                pass
+            try:
+                result['cdp_neighbors'] = driver.get_cdp_neighbors()
+            except Exception:
+                pass
+            driver.disconnect()
+        except Exception as e:
+            result['error'] = str(e)
+
+        return result
+
+    def detect_vendor_from_neighbors(self, neighbor_name: str) -> Optional[DeviceVendor]:
+        """
+        Try to detect vendor from LLDP/CDP neighbor system name.
+        """
+        name_lower = neighbor_name.lower()
+
+        if any(x in name_lower for x in ['huawei', 's5720', 's5700', 's6720', 'ce']):
+            return DeviceVendor.HUAWEI
+        elif any(x in name_lower for x in ['hp', '1900', 'comware', 'procurve']):
+            return DeviceVendor.HP
+        elif any(x in name_lower for x in ['aruba', 'iap', 'ap-']):
+            return DeviceVendor.ARUBA
+
+        return DeviceVendor.UNKNOWN

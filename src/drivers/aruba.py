@@ -253,3 +253,112 @@ class ArubaDriver(BaseDriver):
             pass
 
         return info
+
+    def get_logs(self) -> str:
+        """Retrieve device logs."""
+        logs = []
+
+        # Get system log
+        try:
+            syslog = self.send_command("show log system")
+            logs.append("=== SYSTEM LOG ===\n" + syslog)
+        except Exception:
+            pass
+
+        # Get security log
+        try:
+            seclog = self.send_command("show log security")
+            logs.append("\n=== SECURITY LOG ===\n" + seclog)
+        except Exception:
+            pass
+
+        # Get AP debug log
+        try:
+            aplog = self.send_command("show ap debug log")
+            logs.append("\n=== AP DEBUG LOG ===\n" + aplog)
+        except Exception:
+            pass
+
+        # Get crash log if available
+        try:
+            crashlog = self.send_command("show crash-info")
+            logs.append("\n=== CRASH INFO ===\n" + crashlog)
+        except Exception:
+            pass
+
+        return "\n".join(logs) if logs else "No logs available"
+
+    def get_lldp_neighbors(self) -> List[Dict[str, Any]]:
+        """Retrieve LLDP neighbor information."""
+        neighbors = []
+        try:
+            output = self.send_command("show lldp neighbors")
+            lines = output.strip().split('\n')
+
+            for line in lines:
+                # Skip header lines
+                if not line.strip() or 'Local' in line or '---' in line:
+                    continue
+
+                # Try to parse tabular format: LocalPort  RemoteChassisId  RemotePort  RemoteSysName
+                parts = line.split()
+                if len(parts) >= 3:
+                    neighbors.append({
+                        'local_interface': parts[0],
+                        'neighbor_device': parts[-1] if len(parts) >= 4 else parts[1],
+                        'neighbor_interface': parts[2] if len(parts) >= 3 else parts[1],
+                        'capabilities': None
+                    })
+        except Exception:
+            pass
+
+        # Try detailed version if brief failed
+        if not neighbors:
+            try:
+                output = self.send_command("show lldp neighbors detail")
+                current_neighbor = {}
+
+                for line in output.strip().split('\n'):
+                    line = line.strip()
+                    if 'Local Port' in line:
+                        if current_neighbor and 'neighbor_device' in current_neighbor:
+                            neighbors.append(current_neighbor)
+                        current_neighbor = {'local_interface': line.split(':')[-1].strip()}
+                    elif 'System Name' in line or 'System name' in line:
+                        current_neighbor['neighbor_device'] = line.split(':')[-1].strip()
+                    elif 'Port ID' in line:
+                        current_neighbor['neighbor_interface'] = line.split(':')[-1].strip()
+                    elif 'Capabilities' in line:
+                        current_neighbor['capabilities'] = line.split(':')[-1].strip()
+
+                if current_neighbor and 'neighbor_device' in current_neighbor:
+                    neighbors.append(current_neighbor)
+            except Exception:
+                pass
+
+        return neighbors
+
+    def get_cdp_neighbors(self) -> List[Dict[str, Any]]:
+        """Retrieve CDP neighbor information."""
+        neighbors = []
+        try:
+            output = self.send_command("show cdp neighbors")
+            lines = output.strip().split('\n')
+
+            for line in lines:
+                # Skip header lines
+                if not line.strip() or 'Device' in line or '---' in line:
+                    continue
+
+                parts = line.split()
+                if len(parts) >= 4:
+                    neighbors.append({
+                        'local_interface': parts[1] if len(parts) > 1 else '',
+                        'neighbor_device': parts[0],
+                        'neighbor_interface': parts[-1] if len(parts) >= 4 else '',
+                        'capabilities': parts[2] if len(parts) >= 3 else None
+                    })
+        except Exception:
+            pass
+
+        return neighbors

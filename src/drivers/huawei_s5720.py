@@ -205,3 +205,83 @@ class HuaweiS5720Driver(BaseDriver):
             info['version'] = version_match.group(1)
 
         return info
+
+    def get_logs(self) -> str:
+        """Retrieve device logs."""
+        logs = []
+
+        # Get logbuffer (system logs)
+        try:
+            logbuffer = self.send_command("display logbuffer")
+            logs.append("=== LOG BUFFER ===\n" + logbuffer)
+        except Exception:
+            pass
+
+        # Get trap buffer
+        try:
+            trapbuffer = self.send_command("display trapbuffer")
+            logs.append("\n=== TRAP BUFFER ===\n" + trapbuffer)
+        except Exception:
+            pass
+
+        # Get alarm information
+        try:
+            alarm = self.send_command("display alarm active")
+            logs.append("\n=== ACTIVE ALARMS ===\n" + alarm)
+        except Exception:
+            pass
+
+        return "\n".join(logs) if logs else "No logs available"
+
+    def get_lldp_neighbors(self) -> List[Dict[str, Any]]:
+        """Retrieve LLDP neighbor information."""
+        neighbors = []
+        try:
+            output = self.send_command("display lldp neighbor brief")
+            lines = output.strip().split('\n')
+
+            for line in lines:
+                # Format: Local Intf  Neighbor Dev  Neighbor Intf  Hold-time
+                match = re.match(
+                    r'(\S+)\s+(\S+)\s+(\S+)\s+(\d+)',
+                    line.strip()
+                )
+                if match and not line.startswith('Local'):
+                    neighbors.append({
+                        'local_interface': match.group(1),
+                        'neighbor_device': match.group(2),
+                        'neighbor_interface': match.group(3),
+                        'hold_time': int(match.group(4)),
+                        'capabilities': None
+                    })
+        except Exception:
+            pass
+
+        # Try detailed command if brief didn't work
+        if not neighbors:
+            try:
+                output = self.send_command("display lldp neighbor")
+                current_neighbor = {}
+                for line in output.strip().split('\n'):
+                    if 'Port' in line and 'neighbor' in line.lower():
+                        if current_neighbor:
+                            neighbors.append(current_neighbor)
+                        current_neighbor = {}
+                    if 'System name' in line:
+                        current_neighbor['neighbor_device'] = line.split(':')[-1].strip()
+                    elif 'Port ID' in line:
+                        current_neighbor['neighbor_interface'] = line.split(':')[-1].strip()
+                    elif 'Port Description' in line:
+                        current_neighbor['local_interface'] = line.split(':')[-1].strip()
+                    elif 'System capabilities' in line:
+                        current_neighbor['capabilities'] = line.split(':')[-1].strip()
+                if current_neighbor:
+                    neighbors.append(current_neighbor)
+            except Exception:
+                pass
+
+        return neighbors
+
+    def get_cdp_neighbors(self) -> List[Dict[str, Any]]:
+        """Retrieve CDP neighbor information (Huawei does not support CDP)."""
+        return []

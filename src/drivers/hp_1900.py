@@ -181,3 +181,86 @@ class HP1900Driver(BaseDriver):
             info['version'] = version_match.group(1)
 
         return info
+
+    def get_logs(self) -> str:
+        """Retrieve device logs."""
+        logs = []
+
+        # Get logbuffer (system logs)
+        try:
+            logbuffer = self.send_command("display logbuffer")
+            logs.append("=== LOG BUFFER ===\n" + logbuffer)
+        except Exception:
+            pass
+
+        # Get diagnostic information
+        try:
+            diagnostic = self.send_command("display diagnostic-information")
+            logs.append("\n=== DIAGNOSTIC INFO ===\n" + diagnostic)
+        except Exception:
+            pass
+
+        # Get system health
+        try:
+            health = self.send_command("display device")
+            logs.append("\n=== DEVICE STATUS ===\n" + health)
+        except Exception:
+            pass
+
+        return "\n".join(logs) if logs else "No logs available"
+
+    def get_lldp_neighbors(self) -> List[Dict[str, Any]]:
+        """Retrieve LLDP neighbor information."""
+        neighbors = []
+        try:
+            output = self.send_command("display lldp neighbor-information")
+            current_neighbor = {}
+
+            for line in output.strip().split('\n'):
+                line = line.strip()
+                if 'LLDP neighbor-information' in line or (line.startswith('Port') and ':' not in line):
+                    if current_neighbor and 'neighbor_device' in current_neighbor:
+                        neighbors.append(current_neighbor)
+                    current_neighbor = {}
+                    # Extract local interface from "LLDP neighbor-information of port X"
+                    port_match = re.search(r'port\s+(\S+)', line, re.IGNORECASE)
+                    if port_match:
+                        current_neighbor['local_interface'] = port_match.group(1)
+                elif 'System name' in line:
+                    current_neighbor['neighbor_device'] = line.split(':')[-1].strip()
+                elif 'Port ID' in line:
+                    current_neighbor['neighbor_interface'] = line.split(':')[-1].strip()
+                elif 'System capabilities' in line:
+                    current_neighbor['capabilities'] = line.split(':')[-1].strip()
+
+            if current_neighbor and 'neighbor_device' in current_neighbor:
+                neighbors.append(current_neighbor)
+        except Exception:
+            pass
+
+        # Try brief version if detailed failed
+        if not neighbors:
+            try:
+                output = self.send_command("display lldp neighbor-information brief")
+                lines = output.strip().split('\n')
+
+                for line in lines:
+                    match = re.match(
+                        r'(\S+)\s+(\S+)\s+(\S+)',
+                        line.strip()
+                    )
+                    if match and not line.lower().startswith('local'):
+                        neighbors.append({
+                            'local_interface': match.group(1),
+                            'neighbor_device': match.group(2),
+                            'neighbor_interface': match.group(3),
+                            'capabilities': None
+                        })
+            except Exception:
+                pass
+
+        return neighbors
+
+    def get_cdp_neighbors(self) -> List[Dict[str, Any]]:
+        """Retrieve CDP neighbor information (HP Comware does not support CDP)."""
+        return []

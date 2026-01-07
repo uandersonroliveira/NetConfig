@@ -33,6 +33,12 @@ class ScanRequest(BaseModel):
     ip_range: str
 
 
+class DiscoverRequest(BaseModel):
+    device_ips: Optional[List[str]] = None
+    credential_id: Optional[str] = None
+    add_neighbors: bool = True
+
+
 class CollectRequest(BaseModel):
     device_ips: Optional[List[str]] = None
     credential_id: Optional[str] = None
@@ -58,6 +64,11 @@ class MacSearchRequest(BaseModel):
 # Request models for device operations
 class StatusCheckRequest(BaseModel):
     device_ips: Optional[List[str]] = None
+
+
+class LogCollectRequest(BaseModel):
+    device_ips: List[str]
+    credential_id: Optional[str] = None
 
 
 class BulkDeleteRequest(BaseModel):
@@ -93,8 +104,11 @@ async def add_device(device: DeviceCreate):
 # IMPORTANT: Specific paths must come BEFORE parameterized paths like /devices/{ip}
 @router.post("/devices/bulk")
 async def add_devices_bulk(bulk: BulkDeviceCreate):
-    """Add multiple devices from comma/newline separated text."""
-    ips = parse_bulk_ips(bulk.ips_text)
+    """
+    Add multiple devices from comma/newline separated text.
+    Supports IP ranges (192.168.1.1-10) and CIDR notation (192.168.1.0/24).
+    """
+    ips = expand_ip_input(bulk.ips_text)
     if not ips:
         raise HTTPException(status_code=400, detail="No valid IP addresses found")
 
@@ -278,6 +292,108 @@ async def scan_network(request: ScanRequest, background_tasks: BackgroundTasks):
     return {"message": "Scan started", "ip_range": ip_range}
 
 
+@router.post("/discover")
+async def discover_neighbors(request: DiscoverRequest, background_tasks: BackgroundTasks):
+    """Discover network neighbors via LLDP/CDP from known devices."""
+
+    if request.device_ips:
+        devices = [storage.get_device(ip) for ip in request.device_ips]
+        devices = [d for d in devices if d is not None and d.vendor != DeviceVendor.UNKNOWN]
+    else:
+        devices = [d for d in storage.list_devices() if d.vendor != DeviceVendor.UNKNOWN]
+
+    if not devices:
+        raise HTTPException(status_code=400, detail="No devices with known vendor to query")
+
+    cred = None
+    if request.credential_id:
+        cred = storage.get_credential(request.credential_id)
+    else:
+        cred = storage.get_default_credential()
+
+    if not cred:
+        raise HTTPException(status_code=400, detail="No credentials available")
+
+    password = storage.get_decrypted_password(cred.id)
+    device_list = devices.copy()
+    username = cred.username
+    add_neighbors = request.add_neighbors
+
+    def run_discovery_sync():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        total = len(device_list)
+        all_neighbors = []
+        new_devices = []
+
+        for idx, device in enumerate(device_list, 1):
+            loop.run_until_complete(manager.broadcast_progress(
+                'discover', idx, total,
+                f"Discovering neighbors on {device.ip}",
+                success=True,
+                extra={'device_ip': device.ip, 'status': 'in_progress'}
+            ))
+
+            try:
+                result = connector.discover_neighbors(
+                    device.ip, username, password, device.vendor
+                )
+
+                lldp_count = len(result.get('lldp_neighbors', []))
+                cdp_count = len(result.get('cdp_neighbors', []))
+
+                for neighbor in result.get('lldp_neighbors', []):
+                    neighbor['source'] = 'lldp'
+                    neighbor['source_device'] = device.ip
+                    all_neighbors.append(neighbor)
+
+                for neighbor in result.get('cdp_neighbors', []):
+                    neighbor['source'] = 'cdp'
+                    neighbor['source_device'] = device.ip
+                    all_neighbors.append(neighbor)
+
+                loop.run_until_complete(manager.broadcast_progress(
+                    'discover', idx, total,
+                    f"Found {lldp_count} LLDP, {cdp_count} CDP neighbors on {device.ip}",
+                    success=True,
+                    extra={'device_ip': device.ip, 'status': 'completed',
+                           'lldp_count': lldp_count, 'cdp_count': cdp_count}
+                ))
+            except Exception as e:
+                loop.run_until_complete(manager.broadcast_progress(
+                    'discover', idx, total,
+                    f"Failed to discover on {device.ip}: {str(e)}",
+                    success=False,
+                    extra={'device_ip': device.ip, 'status': 'failed', 'error': str(e)}
+                ))
+
+        # Add discovered neighbors as devices if requested
+        if add_neighbors and all_neighbors:
+            existing_ips = {d.ip for d in storage.list_devices()}
+            for neighbor in all_neighbors:
+                neighbor_name = neighbor.get('neighbor_device', '')
+                if neighbor_name and neighbor_name not in existing_ips:
+                    detected_vendor = connector.detect_vendor_from_neighbors(neighbor_name)
+                    new_devices.append({
+                        'name': neighbor_name,
+                        'vendor': detected_vendor.value if detected_vendor else 'unknown',
+                        'source': neighbor.get('source'),
+                        'source_device': neighbor.get('source_device')
+                    })
+
+        loop.run_until_complete(manager.broadcast_complete('discover', {
+            'total_devices_queried': total,
+            'neighbors_found': len(all_neighbors),
+            'neighbors': all_neighbors,
+            'new_devices': new_devices
+        }))
+        loop.close()
+
+    background_tasks.add_task(lambda: executor.submit(run_discovery_sync).result())
+    return {"message": "Discovery started", "devices_count": len(devices)}
+
+
 # Collection endpoints
 @router.post("/collect")
 async def collect_configs(request: CollectRequest, background_tasks: BackgroundTasks):
@@ -337,6 +453,152 @@ async def collect_configs(request: CollectRequest, background_tasks: BackgroundT
 
     background_tasks.add_task(lambda: executor.submit(run_collection_sync).result())
     return {"message": "Collection started", "devices_count": len(devices)}
+
+
+# Store collected logs in memory (per session)
+collected_logs = {}
+
+
+@router.post("/logs/collect")
+async def collect_logs(request: LogCollectRequest, background_tasks: BackgroundTasks):
+    """Collect logs from selected devices."""
+    if not request.device_ips:
+        raise HTTPException(status_code=400, detail="No devices selected")
+
+    devices = [storage.get_device(ip) for ip in request.device_ips]
+    devices = [d for d in devices if d is not None]
+
+    if not devices:
+        raise HTTPException(status_code=400, detail="No valid devices found")
+
+    cred = None
+    if request.credential_id:
+        cred = storage.get_credential(request.credential_id)
+    else:
+        cred = storage.get_default_credential()
+
+    if not cred:
+        raise HTTPException(status_code=400, detail="No credentials available")
+
+    password = storage.get_decrypted_password(cred.id)
+    device_list = devices.copy()
+    username = cred.username
+
+    # Return device info for progress tracking
+    device_info = [{'ip': d.ip, 'hostname': d.hostname or d.ip, 'vendor': d.vendor} for d in devices]
+
+    def run_log_collection():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        total = len(device_list)
+        results = []
+
+        for idx, device in enumerate(device_list, 1):
+            device_ip = device.ip
+            hostname = device.hostname or device.ip
+
+            # Broadcast progress - starting
+            loop.run_until_complete(manager.broadcast_progress(
+                'logs', idx, total, f"Collecting logs from {hostname}",
+                extra={'device_ip': device_ip, 'status': 'collecting'}
+            ))
+
+            try:
+                if device.vendor == 'unknown':
+                    raise Exception("Unknown device vendor")
+
+                driver = connector.create_connection(
+                    device_ip, username, password, device.vendor
+                )
+
+                try:
+                    logs = driver.get_logs()
+                    collected_logs[device_ip] = {
+                        'device_ip': device_ip,
+                        'hostname': hostname,
+                        'vendor': device.vendor,
+                        'timestamp': datetime.now().isoformat(),
+                        'logs': logs,
+                        'success': True
+                    }
+                    results.append({
+                        'device_ip': device_ip,
+                        'hostname': hostname,
+                        'success': True,
+                        'log_size': len(logs)
+                    })
+                finally:
+                    driver.disconnect()
+
+                # Broadcast progress - success
+                loop.run_until_complete(manager.broadcast_progress(
+                    'logs', idx, total, f"Collected logs from {hostname}",
+                    extra={'device_ip': device_ip, 'status': 'success'}
+                ))
+
+            except Exception as e:
+                collected_logs[device_ip] = {
+                    'device_ip': device_ip,
+                    'hostname': hostname,
+                    'vendor': device.vendor,
+                    'timestamp': datetime.now().isoformat(),
+                    'logs': None,
+                    'success': False,
+                    'error': str(e)
+                }
+                results.append({
+                    'device_ip': device_ip,
+                    'hostname': hostname,
+                    'success': False,
+                    'error': str(e)
+                })
+
+                # Broadcast progress - failed
+                loop.run_until_complete(manager.broadcast_progress(
+                    'logs', idx, total, f"Failed: {hostname}",
+                    extra={'device_ip': device_ip, 'status': 'error'}
+                ))
+
+        # Broadcast completion
+        success_count = sum(1 for r in results if r['success'])
+        loop.run_until_complete(manager.broadcast_complete('logs', {
+            'total': total,
+            'success': success_count,
+            'failed': total - success_count,
+            'results': results
+        }))
+        loop.close()
+
+    background_tasks.add_task(lambda: executor.submit(run_log_collection).result())
+    return {"message": "Log collection started", "devices": device_info}
+
+
+@router.get("/logs/{ip}")
+async def get_device_logs(ip: str):
+    """Get collected logs for a device."""
+    if ip not in collected_logs:
+        raise HTTPException(status_code=404, detail="Logs not found for this device")
+
+    return collected_logs[ip]
+
+
+@router.get("/logs")
+async def list_collected_logs():
+    """List all collected logs."""
+    return {
+        "logs": [
+            {
+                'device_ip': log['device_ip'],
+                'hostname': log['hostname'],
+                'vendor': log['vendor'],
+                'timestamp': log['timestamp'],
+                'success': log['success'],
+                'log_size': len(log['logs']) if log['logs'] else 0
+            }
+            for log in collected_logs.values()
+        ]
+    }
 
 
 # Config endpoints

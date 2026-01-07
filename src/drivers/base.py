@@ -52,6 +52,21 @@ class BaseDriver(ABC):
         """Retrieve device information (hostname, model, version)."""
         pass
 
+    @abstractmethod
+    def get_logs(self) -> str:
+        """Retrieve device logs (syslog, event log, etc.)."""
+        pass
+
+    @abstractmethod
+    def get_lldp_neighbors(self) -> List[Dict[str, Any]]:
+        """Retrieve LLDP neighbor information."""
+        pass
+
+    @abstractmethod
+    def get_cdp_neighbors(self) -> List[Dict[str, Any]]:
+        """Retrieve CDP neighbor information (if supported)."""
+        pass
+
     def send_command(self, command: str) -> str:
         """Send a command and return the output."""
         if self.connection:
