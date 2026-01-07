@@ -59,6 +59,9 @@
                 <div class="page-header">
                     <h2>Devices</h2>
                     <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-danger" id="bulk-delete-btn" onclick="bulkDeleteDevices()" style="display: none;">
+                            &#128465; Delete Selected (<span id="selected-count">0</span>)
+                        </button>
                         <button class="btn btn-secondary" onclick="checkDevicesStatus()">
                             &#8635; Update Status
                         </button>
@@ -80,6 +83,9 @@
                         <table>
                             <thead>
                                 <tr>
+                                    <th style="width: 40px;">
+                                        <input type="checkbox" id="select-all-devices" onchange="toggleSelectAll(this)">
+                                    </th>
                                     <th>IP Address</th>
                                     <th>Hostname</th>
                                     <th>Vendor</th>

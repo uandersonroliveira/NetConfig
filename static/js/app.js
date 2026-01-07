@@ -94,10 +94,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderDevicesTable() {
         const tbody = document.getElementById('devices-tbody');
+        const selectAllCheckbox = document.getElementById('select-all-devices');
+
+        if (selectAllCheckbox) {
+            selectAllCheckbox.checked = false;
+        }
+        updateBulkDeleteButton();
+
         if (!devices.length) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="6" class="empty-state">
+                    <td colspan="7" class="empty-state">
                         <div class="empty-state-icon">&#128268;</div>
                         <p>No devices registered yet</p>
                     </td>
@@ -108,6 +115,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         tbody.innerHTML = devices.map(device => `
             <tr>
+                <td>
+                    <input type="checkbox" class="device-checkbox" value="${device.ip}" onchange="updateBulkDeleteButton()">
+                </td>
                 <td>${device.ip}</td>
                 <td>${device.hostname || '-'}</td>
                 <td><span class="badge badge-info">${device.vendor || 'unknown'}</span></td>
@@ -399,6 +409,59 @@ document.addEventListener('DOMContentLoaded', () => {
             await API.checkDevicesStatus();
             showToast('Status check started', 'info');
             showProgress('status_check');
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+    };
+
+    // Toggle select all devices
+    window.toggleSelectAll = function(checkbox) {
+        const deviceCheckboxes = document.querySelectorAll('.device-checkbox');
+        deviceCheckboxes.forEach(cb => {
+            cb.checked = checkbox.checked;
+        });
+        updateBulkDeleteButton();
+    };
+
+    // Update bulk delete button visibility
+    window.updateBulkDeleteButton = function() {
+        const selectedCheckboxes = document.querySelectorAll('.device-checkbox:checked');
+        const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
+        const selectedCount = document.getElementById('selected-count');
+
+        if (bulkDeleteBtn && selectedCount) {
+            const count = selectedCheckboxes.length;
+            selectedCount.textContent = count;
+            bulkDeleteBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+        }
+
+        // Update select-all checkbox state
+        const allCheckboxes = document.querySelectorAll('.device-checkbox');
+        const selectAllCheckbox = document.getElementById('select-all-devices');
+        if (selectAllCheckbox && allCheckboxes.length > 0) {
+            selectAllCheckbox.checked = selectedCheckboxes.length === allCheckboxes.length;
+            selectAllCheckbox.indeterminate = selectedCheckboxes.length > 0 && selectedCheckboxes.length < allCheckboxes.length;
+        }
+    };
+
+    // Bulk delete devices
+    window.bulkDeleteDevices = async function() {
+        const selectedCheckboxes = document.querySelectorAll('.device-checkbox:checked');
+        const selectedIps = Array.from(selectedCheckboxes).map(cb => cb.value);
+
+        if (selectedIps.length === 0) {
+            showToast('No devices selected', 'warning');
+            return;
+        }
+
+        if (!confirm(`Delete ${selectedIps.length} device(s)?\n\n${selectedIps.join('\n')}`)) {
+            return;
+        }
+
+        try {
+            const result = await API.bulkDeleteDevices(selectedIps);
+            showToast(`Deleted ${result.deleted.length} device(s)`, 'success');
+            await loadDevices();
         } catch (error) {
             showToast(error.message, 'error');
         }

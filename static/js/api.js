@@ -70,6 +70,15 @@ const API = {
         });
     },
 
+    async bulkDeleteDevices(deviceIps) {
+        return this.request('/devices/bulk-delete', {
+            method: 'POST',
+            body: {
+                device_ips: deviceIps,
+            },
+        });
+    },
+
     async checkDevicesStatus(deviceIps = null) {
         return this.request('/devices/check-status', {
             method: 'POST',

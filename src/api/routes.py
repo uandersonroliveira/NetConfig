@@ -144,9 +144,35 @@ async def delete_device(ip: str):
     raise HTTPException(status_code=404, detail="Device not found")
 
 
+@router.post("/devices/bulk-delete")
+async def bulk_delete_devices(request: BulkDeleteRequest):
+    """Delete multiple devices at once."""
+    if not request.device_ips:
+        raise HTTPException(status_code=400, detail="No devices specified")
+
+    deleted = []
+    not_found = []
+
+    for ip in request.device_ips:
+        if storage.delete_device(ip):
+            deleted.append(ip)
+        else:
+            not_found.append(ip)
+
+    return {
+        "message": f"Deleted {len(deleted)} devices",
+        "deleted": deleted,
+        "not_found": not_found
+    }
+
+
 # Device status check
 class StatusCheckRequest(BaseModel):
     device_ips: Optional[List[str]] = None
+
+
+class BulkDeleteRequest(BaseModel):
+    device_ips: List[str]
 
 
 @router.post("/devices/check-status")
