@@ -1,5 +1,30 @@
 // Main application logic
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // Initialize i18n first
+    await I18n.init();
+
+    // Initialize authentication
+    Auth.init();
+
+    // Check if authentication is required
+    const authStatus = await Auth.checkAuthRequired();
+
+    if (authStatus.auth_required) {
+        if (!Auth.isAuthenticated()) {
+            showLoginPage(authStatus.ad_enabled);
+            return;
+        }
+
+        // Check if password change is required
+        if (Auth.mustChangePassword()) {
+            showForcePasswordChangeModal();
+            return;
+        }
+    }
+
+    // Show app container if authenticated
+    showAppContainer();
+
     // Initialize WebSocket
     wsClient.connect();
 
@@ -8,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let devices = [];
     let credentials = [];
     let lastComparisonReportId = null;
+    let users = [];
 
     // DOM Elements
     const navLinks = document.querySelectorAll('.nav-menu a[data-page]');
@@ -96,7 +122,478 @@ document.addEventListener('DOMContentLoaded', () => {
                 await loadCredentials();
                 initMacSearchDeviceList();
                 break;
+            case 'users':
+                await loadUsers();
+                break;
+            case 'ad-settings':
+                await loadADSettings();
+                break;
+            case 'backup':
+                await loadBackupInfo();
+                break;
         }
+    }
+
+    // ==================== AUTHENTICATION ====================
+
+    function showLoginPage(adEnabled) {
+        document.getElementById('login-page').style.display = 'flex';
+        document.querySelector('.app-container').style.display = 'none';
+
+        if (adEnabled) {
+            document.getElementById('ad-login-option').style.display = 'block';
+        }
+
+        // Set up login form handler
+        document.getElementById('login-form').addEventListener('submit', handleLogin);
+    }
+
+    function showAppContainer() {
+        document.getElementById('login-page').style.display = 'none';
+        document.querySelector('.app-container').style.display = 'flex';
+
+        // Update user info in sidebar
+        updateSidebarUserInfo();
+
+        // Hide admin-only elements for non-admin users
+        applyRoleBasedUI();
+    }
+
+    function updateSidebarUserInfo() {
+        const user = Auth.getUser();
+        if (user) {
+            document.getElementById('sidebar-username').textContent = user.username;
+            document.getElementById('sidebar-role').textContent = user.role;
+            document.getElementById('sidebar-role').className = `user-role badge ${user.role === 'admin' ? 'badge-success' : 'badge-info'}`;
+        }
+    }
+
+    function applyRoleBasedUI() {
+        const isAdmin = Auth.isAdmin();
+
+        // Hide admin-only elements
+        document.querySelectorAll('[data-admin-only]').forEach(el => {
+            el.style.display = isAdmin ? '' : 'none';
+        });
+
+        // Hide write buttons for read-only users
+        if (Auth.isReadOnly()) {
+            document.querySelectorAll('.btn-primary:not([data-always-show])').forEach(btn => {
+                if (btn.closest('[data-admin-only]')) return;
+                btn.style.display = 'none';
+            });
+        }
+    }
+
+    async function handleLogin(e) {
+        e.preventDefault();
+
+        const username = document.getElementById('login-username').value;
+        const password = document.getElementById('login-password').value;
+        const useAD = document.getElementById('login-use-ad')?.checked || false;
+        const errorDiv = document.getElementById('login-error');
+        const button = e.target.querySelector('button[type="submit"]');
+
+        errorDiv.style.display = 'none';
+        button.disabled = true;
+        button.textContent = 'Logging in...';
+
+        try {
+            await Auth.login(username, password, useAD);
+
+            // Check if password change is required
+            if (Auth.mustChangePassword()) {
+                showForcePasswordChangeModal();
+            } else {
+                showAppContainer();
+                navigateTo('dashboard');
+            }
+        } catch (error) {
+            errorDiv.textContent = error.message;
+            errorDiv.style.display = 'block';
+        } finally {
+            button.disabled = false;
+            button.textContent = 'Login';
+        }
+    }
+
+    function showForcePasswordChangeModal() {
+        document.getElementById('login-page').style.display = 'none';
+        document.getElementById('force-password-change-modal').style.display = 'flex';
+
+        document.getElementById('force-password-change-form').addEventListener('submit', handleForcePasswordChange);
+    }
+
+    async function handleForcePasswordChange(e) {
+        e.preventDefault();
+
+        const currentPassword = document.getElementById('force-current-password').value;
+        const newPassword = document.getElementById('force-new-password').value;
+        const confirmPassword = document.getElementById('force-confirm-password').value;
+        const errorDiv = document.getElementById('force-password-error');
+        const button = e.target.querySelector('button[type="submit"]');
+
+        errorDiv.style.display = 'none';
+
+        if (newPassword !== confirmPassword) {
+            errorDiv.textContent = I18n.t('users.passwordMismatch') || 'Passwords do not match';
+            errorDiv.style.display = 'block';
+            return;
+        }
+
+        if (newPassword.length < 8) {
+            errorDiv.textContent = I18n.t('users.passwordTooShort') || 'Password must be at least 8 characters';
+            errorDiv.style.display = 'block';
+            return;
+        }
+
+        button.disabled = true;
+        button.textContent = 'Changing...';
+
+        try {
+            await Auth.changePassword(currentPassword, newPassword);
+            document.getElementById('force-password-change-modal').style.display = 'none';
+            showAppContainer();
+            navigateTo('dashboard');
+            showToast(I18n.t('toast.passwordChanged') || 'Password changed successfully', 'success');
+        } catch (error) {
+            errorDiv.textContent = error.message;
+            errorDiv.style.display = 'block';
+        } finally {
+            button.disabled = false;
+            button.textContent = 'Change Password';
+        }
+    }
+
+    // ==================== USERS MANAGEMENT ====================
+
+    async function loadUsers() {
+        if (!Auth.isAdmin()) return;
+
+        try {
+            users = await UserAPI.list();
+            renderUsersTable();
+        } catch (error) {
+            showToast(I18n.t('toast.error.loadUsers') || 'Failed to load users', 'error');
+        }
+    }
+
+    function renderUsersTable() {
+        const tbody = document.getElementById('users-tbody');
+        if (!tbody) return;
+
+        if (!users || users.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" class="empty-state">
+                        <div class="empty-state-icon">&#128101;</div>
+                        <p>No users found</p>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        const currentUserId = Auth.getUser()?.id;
+
+        tbody.innerHTML = users.map(user => `
+            <tr data-user-id="${user.id}">
+                <td>${escapeHtml(user.username)}</td>
+                <td>
+                    <span class="badge ${user.role === 'admin' ? 'badge-success' : 'badge-info'}">
+                        ${user.role === 'admin' ? I18n.t('users.admin') || 'Admin' : I18n.t('users.readonly') || 'Read-only'}
+                    </span>
+                </td>
+                <td>
+                    <span class="badge ${user.auth_type === 'ad' ? 'badge-warning' : 'badge-info'}">
+                        ${user.auth_type === 'ad' ? 'AD' : I18n.t('users.local') || 'Local'}
+                    </span>
+                </td>
+                <td>${user.email || '-'}</td>
+                <td>${user.last_login ? new Date(user.last_login).toLocaleString() : I18n.t('users.never') || 'Never'}</td>
+                <td>
+                    <span class="badge ${user.is_active ? 'badge-success' : 'badge-danger'}">
+                        ${user.is_active ? I18n.t('users.active') || 'Active' : I18n.t('users.inactive') || 'Inactive'}
+                    </span>
+                </td>
+                <td>
+                    <div class="action-buttons">
+                        <button class="btn btn-sm btn-secondary" onclick="openEditUserModal('${user.id}')">
+                            ${I18n.t('common.edit') || 'Edit'}
+                        </button>
+                        ${user.auth_type !== 'ad' ? `
+                            <button class="btn btn-sm btn-secondary" onclick="openChangePasswordModal('${user.id}')">
+                                ${I18n.t('users.changePassword') || 'Password'}
+                            </button>
+                        ` : ''}
+                        ${user.id !== currentUserId ? `
+                            <button class="btn btn-sm ${user.is_active ? 'btn-warning' : 'btn-success'}" onclick="toggleUserActive('${user.id}')">
+                                ${user.is_active ? I18n.t('users.deactivate') || 'Deactivate' : I18n.t('users.activate') || 'Activate'}
+                            </button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteUser('${user.id}')">
+                                ${I18n.t('common.delete') || 'Delete'}
+                            </button>
+                        ` : ''}
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    // User form handlers
+    document.getElementById('add-user-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const userData = {
+            username: document.getElementById('user-username').value,
+            password: document.getElementById('user-password').value,
+            email: document.getElementById('user-email').value || null,
+            role: document.getElementById('user-role').value
+        };
+
+        try {
+            await UserAPI.create(userData);
+            showToast(I18n.t('toast.userCreated') || 'User created successfully', 'success');
+            closeModal('add-user-modal');
+            e.target.reset();
+            await loadUsers();
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+    });
+
+    document.getElementById('edit-user-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const userId = document.getElementById('edit-user-id').value;
+        const updates = {
+            username: document.getElementById('edit-user-username').value,
+            email: document.getElementById('edit-user-email').value || null,
+            role: document.getElementById('edit-user-role').value
+        };
+
+        try {
+            await UserAPI.update(userId, updates);
+            showToast(I18n.t('toast.userUpdated') || 'User updated successfully', 'success');
+            closeModal('edit-user-modal');
+            await loadUsers();
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+    });
+
+    document.getElementById('change-password-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const userId = document.getElementById('change-password-user-id').value;
+        const currentPassword = document.getElementById('change-current-password').value;
+        const newPassword = document.getElementById('change-new-password').value;
+        const confirmPassword = document.getElementById('change-confirm-password').value;
+
+        if (newPassword !== confirmPassword) {
+            showToast(I18n.t('users.passwordMismatch') || 'Passwords do not match', 'error');
+            return;
+        }
+
+        try {
+            await UserAPI.changePassword(userId, currentPassword || null, newPassword);
+            showToast(I18n.t('toast.passwordChanged') || 'Password changed successfully', 'success');
+            closeModal('change-password-modal');
+            e.target.reset();
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+    });
+
+    window.openEditUserModal = function(userId) {
+        const user = users.find(u => u.id === userId);
+        if (!user) return;
+
+        document.getElementById('edit-user-id').value = user.id;
+        document.getElementById('edit-user-username').value = user.username;
+        document.getElementById('edit-user-email').value = user.email || '';
+        document.getElementById('edit-user-role').value = user.role;
+
+        openModal('edit-user-modal');
+    };
+
+    window.openChangePasswordModal = function(userId) {
+        const user = users.find(u => u.id === userId);
+        if (!user) return;
+
+        document.getElementById('change-password-user-id').value = userId;
+        document.getElementById('change-current-password').value = '';
+        document.getElementById('change-new-password').value = '';
+        document.getElementById('change-confirm-password').value = '';
+
+        // Show current password field only if changing own password
+        const currentPasswordGroup = document.getElementById('current-password-group');
+        const currentUserId = Auth.getUser()?.id;
+        currentPasswordGroup.style.display = (userId === currentUserId) ? 'block' : 'none';
+        document.getElementById('change-current-password').required = (userId === currentUserId);
+
+        openModal('change-password-modal');
+    };
+
+    window.toggleUserActive = async function(userId) {
+        try {
+            await UserAPI.toggleActive(userId);
+            showToast(I18n.t('toast.userStatusChanged') || 'User status changed', 'success');
+            await loadUsers();
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+    };
+
+    window.deleteUser = async function(userId) {
+        if (!confirm(I18n.t('confirm.deleteUser') || 'Are you sure you want to delete this user?')) return;
+
+        try {
+            await UserAPI.delete(userId);
+            showToast(I18n.t('toast.userDeleted') || 'User deleted', 'success');
+            await loadUsers();
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+    };
+
+    // ==================== AD SETTINGS ====================
+
+    async function loadADSettings() {
+        if (!Auth.isAdmin()) return;
+
+        try {
+            const settings = await AuthSettingsAPI.get();
+            populateADSettingsForm(settings);
+        } catch (error) {
+            showToast(I18n.t('toast.error.loadADSettings') || 'Failed to load AD settings', 'error');
+        }
+    }
+
+    function populateADSettingsForm(settings) {
+        document.getElementById('ad-enabled').checked = settings.ad_enabled || false;
+        document.getElementById('ad-settings-fields').style.display = settings.ad_enabled ? 'block' : 'none';
+
+        if (settings.ad_settings) {
+            const ad = settings.ad_settings;
+            document.getElementById('ad-server').value = ad.server || '';
+            document.getElementById('ad-port').value = ad.port || 389;
+            document.getElementById('ad-use-ssl').checked = ad.use_ssl || false;
+            document.getElementById('ad-base-dn').value = ad.base_dn || '';
+            document.getElementById('ad-user-dn-pattern').value = ad.user_dn_pattern || '';
+            document.getElementById('ad-admin-group').value = ad.admin_group || '';
+            document.getElementById('ad-readonly-group').value = ad.readonly_group || '';
+            document.getElementById('ad-bind-user').value = ad.bind_user || '';
+            document.getElementById('ad-bind-password').value = ad.bind_password || '';
+        }
+    }
+
+    // Toggle AD settings fields visibility
+    document.getElementById('ad-enabled')?.addEventListener('change', function() {
+        document.getElementById('ad-settings-fields').style.display = this.checked ? 'block' : 'none';
+    });
+
+    // AD settings form submission
+    document.getElementById('ad-settings-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const settings = {
+            ad_enabled: document.getElementById('ad-enabled').checked,
+            ad_settings: {
+                server: document.getElementById('ad-server').value,
+                port: parseInt(document.getElementById('ad-port').value) || 389,
+                use_ssl: document.getElementById('ad-use-ssl').checked,
+                base_dn: document.getElementById('ad-base-dn').value,
+                user_dn_pattern: document.getElementById('ad-user-dn-pattern').value,
+                admin_group: document.getElementById('ad-admin-group').value,
+                readonly_group: document.getElementById('ad-readonly-group').value,
+                bind_user: document.getElementById('ad-bind-user').value,
+                bind_password: document.getElementById('ad-bind-password').value
+            }
+        };
+
+        try {
+            await AuthSettingsAPI.update(settings);
+            showToast(I18n.t('toast.adSettingsSaved') || 'AD settings saved', 'success');
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+    });
+
+    window.testADConnection = async function() {
+        const resultDiv = document.getElementById('ad-test-result');
+        resultDiv.style.display = 'block';
+        resultDiv.innerHTML = '<span class="spinner"></span> Testing connection...';
+        resultDiv.className = '';
+
+        const settings = {
+            ad_settings: {
+                server: document.getElementById('ad-server').value,
+                port: parseInt(document.getElementById('ad-port').value) || 389,
+                use_ssl: document.getElementById('ad-use-ssl').checked,
+                base_dn: document.getElementById('ad-base-dn').value,
+                user_dn_pattern: document.getElementById('ad-user-dn-pattern').value,
+                bind_user: document.getElementById('ad-bind-user').value,
+                bind_password: document.getElementById('ad-bind-password').value
+            }
+        };
+
+        try {
+            const result = await AuthSettingsAPI.testAD(settings);
+            if (result.success) {
+                resultDiv.innerHTML = `<span style="color: var(--success-color);">&#10003;</span> ${result.message}`;
+            } else {
+                resultDiv.innerHTML = `<span style="color: var(--danger-color);">&#10007;</span> ${result.message}`;
+            }
+        } catch (error) {
+            resultDiv.innerHTML = `<span style="color: var(--danger-color);">&#10007;</span> ${error.message}`;
+        }
+    };
+
+    // ==================== BACKUP ====================
+
+    async function loadBackupInfo() {
+        if (!Auth.isAdmin()) return;
+
+        try {
+            const info = await BackupAPI.getInfo();
+            renderBackupInfo(info);
+        } catch (error) {
+            document.getElementById('backup-info').innerHTML = '<p class="empty-state">Failed to load backup information</p>';
+        }
+    }
+
+    function renderBackupInfo(info) {
+        const container = document.getElementById('backup-info');
+        if (!container) return;
+
+        let html = '<div class="table-container"><table><thead><tr><th>File</th><th>Size</th><th>Last Modified</th></tr></thead><tbody>';
+
+        // Config files
+        info.config_files.forEach(f => {
+            html += `<tr><td>${f.name}</td><td>${formatFileSize(f.size)}</td><td>${new Date(f.modified).toLocaleString()}</td></tr>`;
+        });
+
+        // Data files
+        info.data_files.forEach(f => {
+            html += `<tr><td>${f.name}</td><td>${formatFileSize(f.size)}</td><td>${new Date(f.modified).toLocaleString()}</td></tr>`;
+        });
+
+        html += '</tbody></table></div>';
+
+        if (info.device_configs_count !== undefined) {
+            html += `<p style="margin-top: 1rem; color: var(--text-muted);">Device configurations: ${info.device_configs_count} file(s)</p>`;
+        }
+
+        container.innerHTML = html;
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
     function updateCompareReferenceSelect() {
@@ -167,6 +664,31 @@ document.addEventListener('DOMContentLoaded', () => {
         updateCompareSelectedCount();
     };
 
+    window.filterCompareTargets = function(searchTerm) {
+        const items = document.querySelectorAll('#compare-targets-list .device-selection-item');
+        const term = searchTerm.toLowerCase().trim();
+
+        items.forEach(item => {
+            const ip = item.querySelector('.device-selection-ip')?.textContent.toLowerCase() || '';
+            const hostname = item.querySelector('.device-selection-hostname')?.textContent.toLowerCase() || '';
+            const vendor = item.querySelector('.badge')?.textContent.toLowerCase() || '';
+
+            const matches = term === '' || ip.includes(term) || hostname.includes(term) || vendor.includes(term);
+            item.style.display = matches ? '' : 'none';
+        });
+    };
+
+    window.selectFilteredCompareTargets = function() {
+        const items = document.querySelectorAll('#compare-targets-list .device-selection-item');
+        items.forEach(item => {
+            if (item.style.display !== 'none') {
+                const checkbox = item.querySelector('.compare-target-checkbox');
+                if (checkbox) checkbox.checked = true;
+            }
+        });
+        updateCompareSelectedCount();
+    };
+
     window.startBatchComparison = async function() {
         const referenceIp = document.getElementById('compare-reference').value;
         const targetCheckboxes = document.querySelectorAll('.compare-target-checkbox:checked');
@@ -174,12 +696,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const button = document.getElementById('start-compare-btn');
 
         if (!referenceIp) {
-            showToast('Please select a reference device', 'warning');
+            showToast(I18n.t('toast.selectReferenceDevice'), 'warning');
             return;
         }
 
         if (targetIps.length === 0) {
-            showToast('Please select at least one target device', 'warning');
+            showToast(I18n.t('toast.selectTargetDevices'), 'warning');
             return;
         }
 
@@ -212,7 +734,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await API.getComparisonReports();
             renderComparisonReportsList(response.reports);
         } catch (error) {
-            showToast('Failed to load comparison reports', 'error');
+            showToast(I18n.t('toast.error.loadReports'), 'error');
         }
     }
 
@@ -471,7 +993,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const deviceIps = Array.from(selectedCheckboxes).map(cb => cb.value);
 
         if (deviceIps.length === 0) {
-            showToast('Please select at least one device', 'warning');
+            showToast(I18n.t('toast.selectAtLeastOneDevice'), 'warning');
             return;
         }
 
@@ -486,7 +1008,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const response = await API.collectLogs(deviceIps, credentialId);
-            showToast('Log collection started', 'info');
+            showToast(I18n.t('toast.logCollectionStarted'), 'info');
             showProgress('logs');
 
             // Initialize device progress list
@@ -747,7 +1269,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const deviceIps = Array.from(checkboxes).map(cb => cb.value);
 
         if (deviceIps.length === 0) {
-            showToast('Please select at least one device', 'warning');
+            showToast(I18n.t('toast.selectAtLeastOneDevice'), 'warning');
             return;
         }
 
@@ -760,7 +1282,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             await API.startCollection(deviceIps, credentialId);
-            showToast('Collection started', 'info');
+            showToast(I18n.t('toast.collectionStarted'), 'info');
             showProgress('collect');
 
             // Initialize device progress list
@@ -853,7 +1375,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('stat-offline').textContent = stats.status.offline;
             document.getElementById('stat-credentials').textContent = stats.credentials_count;
         } catch (error) {
-            showToast('Failed to load dashboard stats', 'error');
+            showToast(I18n.t('toast.error.loadDashboard'), 'error');
         }
     }
 
@@ -864,7 +1386,7 @@ document.addEventListener('DOMContentLoaded', () => {
             devices = response.devices;
             renderDevicesTable();
         } catch (error) {
-            showToast('Failed to load devices', 'error');
+            showToast(I18n.t('toast.error.loadDevices'), 'error');
         }
     }
 
@@ -936,7 +1458,7 @@ document.addEventListener('DOMContentLoaded', () => {
             renderCredentialsTable();
             updateCredentialSelects();
         } catch (error) {
-            showToast('Failed to load credentials', 'error');
+            showToast(I18n.t('toast.error.loadCredentials'), 'error');
         }
     }
 
@@ -1019,7 +1541,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const result = await API.addDevicesBulk(ipsText, vendor, credentialId);
-            showToast(`Added ${result.added.length} devices`, 'success');
+            showToast(I18n.t('toast.devicesAdded', { count: result.added.length }), 'success');
             closeModal('add-device-modal');
             e.target.reset();
             await loadDevices();
@@ -1040,7 +1562,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 formData.get('is_default') === 'on',
                 formData.get('description') || null
             );
-            showToast('Credential added', 'success');
+            showToast(I18n.t('toast.credentialAdded'), 'success');
             closeModal('add-credential-modal');
             e.target.reset();
             await loadCredentials();
@@ -1061,7 +1583,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             await API.startScan(ipRange);
-            showToast('Scan started', 'info');
+            showToast(I18n.t('toast.scanStarted'), 'info');
             showProgress('scan');
         } catch (error) {
             showToast(error.message, 'error');
@@ -1136,7 +1658,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         if (devices.length === 0) {
-            showToast('No devices selected', 'warning');
+            showToast(I18n.t('toast.noDevicesSelected'), 'warning');
             return;
         }
 
@@ -1145,7 +1667,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const result = await API.addScannedDevices(devices);
-            showToast(`Added ${result.added.length} devices`, 'success');
+            showToast(I18n.t('toast.devicesAdded', { count: result.added.length }), 'success');
             document.getElementById('scan-results').style.display = 'none';
             await loadDevices();
         } catch (error) {
@@ -1175,7 +1697,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             await API.startDiscovery(null, credentialId, true, ipRange);
-            showToast('Discovery started', 'info');
+            showToast(I18n.t('toast.discoveryStarted'), 'info');
             showProgress('discover');
             initDiscoverDeviceProgress();
         } catch (error) {
@@ -1383,7 +1905,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const response = await API.searchMac(macAddress, selectedDeviceIps, credentialId);
-            showToast('MAC search started', 'info');
+            showToast(I18n.t('toast.macSearchStarted'), 'info');
             showProgress('mac_search');
 
             // Initialize device list with selected devices
@@ -1534,11 +2056,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Delete device
     window.deleteDevice = async function(ip) {
-        if (!confirm(`Delete device ${ip}?`)) return;
+        if (!confirm(I18n.t('confirm.deleteDevice', { ip }))) return;
 
         try {
             await API.deleteDevice(ip);
-            showToast('Device deleted', 'success');
+            showToast(I18n.t('toast.deviceDeleted'), 'success');
             await loadDevices();
         } catch (error) {
             showToast(error.message, 'error');
@@ -1552,106 +2074,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             await API.checkDevicesStatus();
-            showToast('Status check started', 'info');
+            showToast(I18n.t('toast.statusCheckStarted'), 'info');
             showProgress('status_check');
         } catch (error) {
             showToast(error.message, 'error');
-            setButtonLoading(button, false);
-        }
-    };
-
-    // Open collect configs modal
-    window.openCollectConfigsModal = async function() {
-        await loadCredentials();
-        await initCollectModalDeviceList();
-        openModal('collect-configs-modal');
-    };
-
-    // Initialize device list in collect modal
-    async function initCollectModalDeviceList() {
-        const container = document.getElementById('collect-modal-device-list');
-
-        // Populate group select
-        await populateGroupSelect('collect-modal-group');
-
-        // Clear filter input
-        const filterInput = document.getElementById('collect-modal-filter');
-        if (filterInput) filterInput.value = '';
-
-        if (!devices || devices.length === 0) {
-            container.innerHTML = '<p class="empty-state">No devices available</p>';
-            return;
-        }
-
-        container.innerHTML = devices.map(d => `
-            <div style="display: flex; align-items: center; padding: 0.25rem 0;" data-device-filter="${d.hostname || ''} ${d.ip} ${d.vendor || ''}">
-                <input type="checkbox" class="collect-modal-device-checkbox"
-                       id="collect-device-${d.ip}" value="${d.ip}" checked
-                       onchange="updateCollectModalSelectedCount()">
-                <label for="collect-device-${d.ip}" style="margin-left: 0.5rem; flex: 1;">
-                    ${d.hostname || d.ip}
-                    <span style="color: var(--text-muted);">(${d.ip})</span>
-                    <span class="badge ${d.status === 'online' ? 'badge-success' : d.status === 'offline' ? 'badge-danger' : 'badge-warning'}" style="margin-left: 0.5rem;">
-                        ${d.status}
-                    </span>
-                </label>
-            </div>
-        `).join('');
-
-        updateCollectModalSelectedCount();
-    }
-
-    window.filterCollectModalDevices = function(filterText) {
-        filterDeviceList('collect-modal-device-list', filterText);
-    };
-
-    window.selectCollectModalGroup = function(groupId) {
-        if (!groupId) return;
-        selectDevicesByGroup('collect-modal-group', 'collect-modal-device-checkbox', updateCollectModalSelectedCount);
-    };
-
-    window.selectAllCollectDevices = function(select) {
-        // Only affect visible (non-filtered) checkboxes
-        const container = document.getElementById('collect-modal-device-list');
-        const items = container.querySelectorAll('[data-device-filter]');
-        items.forEach(item => {
-            if (item.style.display !== 'none') {
-                const cb = item.querySelector('.collect-modal-device-checkbox');
-                if (cb) cb.checked = select;
-            }
-        });
-        // Reset group dropdown
-        const groupSelect = document.getElementById('collect-modal-group');
-        if (groupSelect) groupSelect.value = '';
-        updateCollectModalSelectedCount();
-    };
-
-    window.updateCollectModalSelectedCount = function() {
-        const checked = document.querySelectorAll('.collect-modal-device-checkbox:checked').length;
-        document.getElementById('collect-modal-selected-count').textContent = `${checked} selected`;
-    };
-
-    window.startCollectFromModal = async function() {
-        const credentialId = document.getElementById('collect-modal-credential').value || null;
-        const checkboxes = document.querySelectorAll('.collect-modal-device-checkbox:checked');
-        const deviceIps = Array.from(checkboxes).map(cb => cb.value);
-
-        if (deviceIps.length === 0) {
-            showToast('No devices selected', 'warning');
-            return;
-        }
-
-        const button = document.getElementById('collect-modal-btn');
-        setButtonLoading(button, true, 'Starting...');
-
-        try {
-            await API.startCollection(deviceIps, credentialId);
-            showToast('Collection started', 'info');
-            closeModal('collect-configs-modal');
-            showProgress('devices-collect');
-        } catch (error) {
-            showToast(error.message, 'error');
-        } finally {
             setButtonLoading(button, false);
         }
     };
@@ -1696,13 +2122,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (!confirm(`Delete ${selectedIps.length} device(s)?\n\n${selectedIps.join('\n')}`)) {
+        if (!confirm(I18n.t('confirm.deleteDevices', { count: selectedIps.length }) + '\n\n' + selectedIps.join('\n'))) {
             return;
         }
 
         try {
             const result = await API.bulkDeleteDevices(selectedIps);
-            showToast(`Deleted ${result.deleted.length} device(s)`, 'success');
+            showToast(I18n.t('toast.devicesDeleted', { count: result.deleted.length }), 'success');
             await loadDevices();
         } catch (error) {
             showToast(error.message, 'error');
@@ -1713,7 +2139,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.setDefaultCredential = async function(id) {
         try {
             await API.setDefaultCredential(id);
-            showToast('Default credential updated', 'success');
+            showToast(I18n.t('toast.defaultCredentialUpdated'), 'success');
             await loadCredentials();
         } catch (error) {
             showToast(error.message, 'error');
@@ -1722,11 +2148,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Delete credential
     window.deleteCredential = async function(id) {
-        if (!confirm('Delete this credential?')) return;
+        if (!confirm(I18n.t('confirm.deleteCredential'))) return;
 
         try {
             await API.deleteCredential(id);
-            showToast('Credential deleted', 'success');
+            showToast(I18n.t('toast.credentialDeleted'), 'success');
             await loadCredentials();
         } catch (error) {
             showToast(error.message, 'error');
@@ -1829,16 +2255,12 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'scan':
                 const scanBtnComplete = document.getElementById('scan-btn');
                 setButtonLoading(scanBtnComplete, false);
-                showToast(`Scan complete: ${data.results.devices_found} devices found`, 'success');
+                showToast(I18n.t('toast.scanComplete', { count: data.results.devices_found }), 'success');
                 renderScanResults(data.results.devices);
                 break;
             case 'collect':
-                showToast(`Collection complete: ${data.results.success}/${data.results.total} successful`, 'success');
+                showToast(I18n.t('toast.collectionComplete', { success: data.results.success, total: data.results.total }), 'success');
                 // Reset buttons
-                const collectModalBtn = document.getElementById('collect-modal-btn');
-                setButtonLoading(collectModalBtn, false);
-                const collectFormBtn = document.querySelector('#collect-form button[type="submit"]');
-                setButtonLoading(collectFormBtn, false);
                 const collectPageBtn = document.getElementById('collect-page-btn');
                 setButtonLoading(collectPageBtn, false);
                 // Hide device progress after delay
@@ -1847,7 +2269,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 await loadDevices();
                 break;
             case 'status_check':
-                showToast(`Status check complete: ${data.results.online} online, ${data.results.offline} offline`, 'success');
+                showToast(I18n.t('toast.statusCheckComplete', { online: data.results.online, offline: data.results.offline }), 'success');
                 // Reset button
                 const statusBtn = document.querySelector('button[onclick="checkDevicesStatus()"]');
                 setButtonLoading(statusBtn, false);
@@ -1863,15 +2285,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 const resultsCount = data.results.results ? data.results.results.length : 0;
                 if (data.results.found) {
-                    showToast(`Found ${resultsCount} MAC address${resultsCount > 1 ? 'es' : ''}`, 'success');
+                    showToast(I18n.t('toast.macFound', { count: resultsCount }), 'success');
                 } else {
-                    showToast('MAC address not found', 'warning');
+                    showToast(I18n.t('toast.macNotFound'), 'warning');
                 }
                 renderMacResults(data.results);
                 break;
             case 'compare':
                 lastComparisonReportId = data.results.report_id;
-                showToast(`Comparison complete: ${data.results.total} device(s) compared`, 'success');
+                showToast(I18n.t('toast.comparisonComplete', { count: data.results.total }), 'success');
                 // Reset button
                 const compareBtn = document.getElementById('start-compare-btn');
                 setButtonLoading(compareBtn, false);
@@ -1888,7 +2310,7 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'logs':
                 const logsBtn = document.getElementById('logs-collect-btn');
                 setButtonLoading(logsBtn, false);
-                showToast(`Log collection complete: ${data.results.success}/${data.results.total} successful`, 'success');
+                showToast(I18n.t('toast.logCollectionComplete', { success: data.results.success, total: data.results.total }), 'success');
                 // Render results
                 renderLogsResults(data.results.results);
                 break;
@@ -1896,7 +2318,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const discoverBtn = document.getElementById('discover-btn');
                 setButtonLoading(discoverBtn, false);
                 const neighborsFound = data.results.neighbors_found || 0;
-                showToast(`Discovery complete: ${neighborsFound} neighbor(s) found`, 'success');
+                showToast(I18n.t('toast.discoveryComplete', { count: neighborsFound }), 'success');
                 // Render results
                 renderDiscoverResults(data.results.neighbors, data.results.new_devices);
                 break;
@@ -1909,10 +2331,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Reset buttons on error
         if (data.task_type === 'collect') {
-            const collectModalBtn = document.getElementById('collect-modal-btn');
-            setButtonLoading(collectModalBtn, false);
-            const collectFormBtn = document.querySelector('#collect-form button[type="submit"]');
-            setButtonLoading(collectFormBtn, false);
             const collectPageBtn = document.getElementById('collect-page-btn');
             setButtonLoading(collectPageBtn, false);
         } else if (data.task_type === 'status_check') {
@@ -2039,9 +2457,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (groupId && devices.length > 0) {
                     try {
                         await API.addDevicesToGroup(groupId, devices);
-                        showToast(`Added ${devices.length} device(s) to group`, 'success');
+                        showToast(I18n.t('toast.devicesAddedToGroup', { count: devices.length }), 'success');
                     } catch (error) {
-                        showToast('Failed to add devices to group: ' + error.message, 'error');
+                        showToast(I18n.t('toast.error.addToGroup', { message: error.message }), 'error');
                     }
                 }
                 break;
@@ -2058,11 +2476,11 @@ document.addEventListener('DOMContentLoaded', () => {
                                 await API.removeDevicesFromGroup(group.id, toRemove);
                             }
                         }
-                        showToast(`Removed ${devices.length} device(s) from all groups`, 'success');
+                        showToast(I18n.t('toast.devicesRemovedFromGroups', { count: devices.length }), 'success');
                         // Refresh groups if on groups tab
                         loadGroups();
                     } catch (error) {
-                        showToast('Failed to remove devices from groups: ' + error.message, 'error');
+                        showToast(I18n.t('toast.error.removeFromGroups', { message: error.message }), 'error');
                     }
                 }
                 break;
@@ -2112,7 +2530,7 @@ document.addEventListener('DOMContentLoaded', () => {
             groups = response.groups || [];
             renderGroupsList();
         } catch (error) {
-            showToast('Failed to load groups', 'error');
+            showToast(I18n.t('toast.error.loadGroups'), 'error');
         }
     }
 
@@ -2294,7 +2712,7 @@ document.addEventListener('DOMContentLoaded', () => {
             .map(cb => cb.value);
 
         if (!name) {
-            showToast('Please enter a group name', 'error');
+            showToast(I18n.t('toast.enterGroupName'), 'error');
             return;
         }
 
@@ -2310,35 +2728,60 @@ document.addEventListener('DOMContentLoaded', () => {
                     color,
                     device_ips: selectedDevices
                 });
-                showToast('Group updated successfully', 'success');
+                showToast(I18n.t('toast.groupUpdated'), 'success');
             } else {
                 // Create new group
                 await API.createGroup(name, description || null, color, selectedDevices);
-                showToast('Group created successfully', 'success');
+                showToast(I18n.t('toast.groupCreated'), 'success');
             }
 
             closeModal('group-modal');
             loadGroups();
         } catch (error) {
-            showToast('Failed to save group: ' + error.message, 'error');
+            showToast(I18n.t('toast.error.saveGroup', { message: error.message }), 'error');
         } finally {
             setButtonLoading(submitBtn, false);
         }
     });
 
     window.deleteGroup = async function(groupId) {
-        if (!confirm('Are you sure you want to delete this group? Devices will not be deleted.')) {
+        if (!confirm(I18n.t('confirm.deleteGroup'))) {
             return;
         }
 
         try {
             await API.deleteGroup(groupId);
-            showToast('Group deleted', 'success');
+            showToast(I18n.t('toast.groupDeleted'), 'success');
             loadGroups();
         } catch (error) {
-            showToast('Failed to delete group: ' + error.message, 'error');
+            showToast(I18n.t('toast.error.deleteGroup', { message: error.message }), 'error');
         }
     };
+
+    // =============================================
+    // Language Preferences
+    // =============================================
+
+    window.saveLanguagePreference = async function() {
+        const locale = document.getElementById('language-select').value;
+        const success = await I18n.setLocale(locale);
+        if (success) {
+            showToast(I18n.t('toast.languageSaved'), 'success');
+        }
+    };
+
+    // Listen for locale changes to re-render dynamic content
+    window.addEventListener('localeChanged', async () => {
+        // Re-render device table if on devices page
+        if (currentPage === 'devices') {
+            renderDevicesTable();
+            renderGroupsList();
+        }
+        // Re-render credentials table if on credentials page
+        if (currentPage === 'credentials') {
+            renderCredentialsTable();
+        }
+    });
 
     // =============================================
     // Initialization

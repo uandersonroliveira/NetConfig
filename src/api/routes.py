@@ -1,12 +1,13 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from pydantic import BaseModel
 
 from ..models.device import Device, DeviceCreate, BulkDeviceCreate, DeviceVendor, DeviceStatus, DeviceGroup, DeviceGroupCreate, DeviceGroupUpdate
 from ..models.config import CredentialCreate, CredentialResponse, ConfigComparison
+from ..models.user import User
 from ..storage.json_storage import JsonStorage
 from ..core.scanner import Scanner
 from ..core.connector import Connector
@@ -16,8 +17,14 @@ from ..core.comparator import ConfigComparator
 from ..core.mac_finder import MacFinder
 from ..utils.ip_utils import parse_bulk_ips, expand_ip_input
 from .websocket import manager
+from .auth import router as auth_router, require_write_access, get_current_user, get_optional_user
+from .users import router as users_router
 
 router = APIRouter(prefix="/api")
+
+# Include auth and users routers
+router.include_router(auth_router)
+router.include_router(users_router)
 storage = JsonStorage()
 scanner = Scanner()
 connector = Connector()
@@ -89,7 +96,7 @@ async def list_devices():
 
 
 @router.post("/devices")
-async def add_device(device: DeviceCreate):
+async def add_device(device: DeviceCreate, current_user: User = Depends(require_write_access)):
     """Add a single device."""
     existing = storage.get_device(device.ip)
     if existing:
@@ -108,7 +115,7 @@ async def add_device(device: DeviceCreate):
 
 # IMPORTANT: Specific paths must come BEFORE parameterized paths like /devices/{ip}
 @router.post("/devices/bulk")
-async def add_devices_bulk(bulk: BulkDeviceCreate):
+async def add_devices_bulk(bulk: BulkDeviceCreate, current_user: User = Depends(require_write_access)):
     """
     Add multiple devices from comma/newline separated text.
     Supports IP ranges (192.168.1.1-10) and CIDR notation (192.168.1.0/24).
@@ -142,7 +149,7 @@ async def add_devices_bulk(bulk: BulkDeviceCreate):
 
 
 @router.post("/devices/bulk-delete")
-async def bulk_delete_devices(request: BulkDeleteRequest):
+async def bulk_delete_devices(request: BulkDeleteRequest, current_user: User = Depends(require_write_access)):
     """Delete multiple devices at once."""
     if not request.device_ips:
         raise HTTPException(status_code=400, detail="No devices specified")
@@ -164,7 +171,7 @@ async def bulk_delete_devices(request: BulkDeleteRequest):
 
 
 @router.post("/devices/check-status")
-async def check_devices_status(request: StatusCheckRequest, background_tasks: BackgroundTasks):
+async def check_devices_status(request: StatusCheckRequest, background_tasks: BackgroundTasks, current_user: User = Depends(require_write_access)):
     """Check SSH connectivity status for devices."""
 
     if request.device_ips:
@@ -228,7 +235,7 @@ async def get_device(ip: str):
 
 
 @router.put("/devices/{ip}")
-async def update_device(ip: str, updates: DeviceCreate):
+async def update_device(ip: str, updates: DeviceCreate, current_user: User = Depends(require_write_access)):
     """Update device information."""
     device = storage.get_device(ip)
     if not device:
@@ -248,7 +255,7 @@ async def update_device(ip: str, updates: DeviceCreate):
 
 
 @router.delete("/devices/{ip}")
-async def delete_device(ip: str):
+async def delete_device(ip: str, current_user: User = Depends(require_write_access)):
     """Delete a device."""
     if storage.delete_device(ip):
         return {"message": "Device deleted"}
@@ -257,7 +264,7 @@ async def delete_device(ip: str):
 
 # Scan endpoints
 @router.post("/scan")
-async def scan_network(request: ScanRequest, background_tasks: BackgroundTasks):
+async def scan_network(request: ScanRequest, background_tasks: BackgroundTasks, current_user: User = Depends(require_write_access)):
     """Scan IP range for devices with open SSH ports (does not auto-add devices)."""
     ip_range = request.ip_range
 
@@ -304,7 +311,7 @@ class AddScannedDevicesRequest(BaseModel):
 
 
 @router.post("/scan/add-devices")
-async def add_scanned_devices(request: AddScannedDevicesRequest):
+async def add_scanned_devices(request: AddScannedDevicesRequest, current_user: User = Depends(require_write_access)):
     """Add selected devices from scan results."""
     added = []
     skipped = []
@@ -340,7 +347,7 @@ async def add_scanned_devices(request: AddScannedDevicesRequest):
 
 
 @router.post("/discover")
-async def discover_neighbors(request: DiscoverRequest, background_tasks: BackgroundTasks):
+async def discover_neighbors(request: DiscoverRequest, background_tasks: BackgroundTasks, current_user: User = Depends(require_write_access)):
     """Discover network neighbors via LLDP/CDP from devices or IP range."""
 
     cred = None
@@ -586,7 +593,7 @@ async def discover_neighbors(request: DiscoverRequest, background_tasks: Backgro
 
 # Collection endpoints
 @router.post("/collect")
-async def collect_configs(request: CollectRequest, background_tasks: BackgroundTasks):
+async def collect_configs(request: CollectRequest, background_tasks: BackgroundTasks, current_user: User = Depends(require_write_access)):
     """Collect configurations from devices."""
 
     if request.device_ips:
@@ -661,7 +668,7 @@ collected_logs = {}
 
 
 @router.post("/logs/collect")
-async def collect_logs(request: LogCollectRequest, background_tasks: BackgroundTasks):
+async def collect_logs(request: LogCollectRequest, background_tasks: BackgroundTasks, current_user: User = Depends(require_write_access)):
     """Collect logs from selected devices."""
     if not request.device_ips:
         raise HTTPException(status_code=400, detail="No devices selected")
@@ -862,7 +869,7 @@ async def compare_configs(request: CompareRequest):
 
 
 @router.post("/compare/batch")
-async def batch_compare_configs(request: BatchCompareRequest, background_tasks: BackgroundTasks):
+async def batch_compare_configs(request: BatchCompareRequest, background_tasks: BackgroundTasks, current_user: User = Depends(require_write_access)):
     """Compare reference device configuration against multiple target devices."""
     global comparison_reports
 
@@ -985,7 +992,7 @@ async def search_mac(mac_address: str, use_cache: bool = True):
 
 
 @router.post("/mac/search")
-async def search_mac_live(request: MacSearchRequest, background_tasks: BackgroundTasks):
+async def search_mac_live(request: MacSearchRequest, background_tasks: BackgroundTasks, current_user: User = Depends(require_write_access)):
     """Search for a MAC address with live device queries across all online devices."""
     mac_address = request.mac_address
     is_wildcard = mac_finder.is_wildcard_pattern(mac_address)
@@ -1045,7 +1052,7 @@ async def list_credentials():
 
 
 @router.post("/credentials")
-async def add_credential(cred: CredentialCreate):
+async def add_credential(cred: CredentialCreate, current_user: User = Depends(require_write_access)):
     """Add a new credential."""
     new_cred = storage.save_credential(
         cred.username, cred.password, cred.is_default, cred.description
@@ -1063,7 +1070,7 @@ async def add_credential(cred: CredentialCreate):
 
 
 @router.put("/credentials/{credential_id}/default")
-async def set_default_credential(credential_id: str):
+async def set_default_credential(credential_id: str, current_user: User = Depends(require_write_access)):
     """Set a credential as default."""
     if storage.set_default_credential(credential_id):
         return {"message": "Default credential updated"}
@@ -1071,7 +1078,7 @@ async def set_default_credential(credential_id: str):
 
 
 @router.delete("/credentials/{credential_id}")
-async def delete_credential(credential_id: str):
+async def delete_credential(credential_id: str, current_user: User = Depends(require_write_access)):
     """Delete a credential."""
     if storage.delete_credential(credential_id):
         return {"message": "Credential deleted"}
@@ -1132,7 +1139,7 @@ async def list_groups():
 
 
 @router.post("/groups")
-async def create_group(group: DeviceGroupCreate):
+async def create_group(group: DeviceGroupCreate, current_user: User = Depends(require_write_access)):
     """Create a new device group."""
     # Validate device IPs exist
     for ip in group.device_ips:
@@ -1182,7 +1189,7 @@ async def get_group(group_id: str):
 
 
 @router.put("/groups/{group_id}")
-async def update_group(group_id: str, updates: DeviceGroupUpdate):
+async def update_group(group_id: str, updates: DeviceGroupUpdate, current_user: User = Depends(require_write_access)):
     """Update a device group."""
     group = storage.get_group(group_id)
     if not group:
@@ -1218,7 +1225,7 @@ async def update_group(group_id: str, updates: DeviceGroupUpdate):
 
 
 @router.delete("/groups/{group_id}")
-async def delete_group(group_id: str):
+async def delete_group(group_id: str, current_user: User = Depends(require_write_access)):
     """Delete a device group."""
     if storage.delete_group(group_id):
         return {"message": "Group deleted"}
@@ -1226,7 +1233,7 @@ async def delete_group(group_id: str):
 
 
 @router.post("/groups/{group_id}/devices")
-async def add_devices_to_group(group_id: str, request: GroupDevicesRequest):
+async def add_devices_to_group(group_id: str, request: GroupDevicesRequest, current_user: User = Depends(require_write_access)):
     """Add devices to a group."""
     group = storage.get_group(group_id)
     if not group:
@@ -1250,7 +1257,7 @@ async def add_devices_to_group(group_id: str, request: GroupDevicesRequest):
 
 
 @router.delete("/groups/{group_id}/devices")
-async def remove_devices_from_group(group_id: str, request: GroupDevicesRequest):
+async def remove_devices_from_group(group_id: str, request: GroupDevicesRequest, current_user: User = Depends(require_write_access)):
     """Remove devices from a group."""
     group = storage.get_group(group_id)
     if not group:
@@ -1287,3 +1294,143 @@ async def get_device_groups(ip: str):
             for g in groups
         ]
     }
+
+
+# Backup endpoints
+from fastapi.responses import StreamingResponse
+from .auth import require_admin
+import zipfile
+import io
+import json as json_module
+from pathlib import Path
+
+
+class RestoreRequest(BaseModel):
+    backup_type: str  # "config" or "full"
+
+
+@router.get("/backup/config")
+async def backup_config(current_user: User = Depends(require_admin)):
+    """
+    Download app configuration backup (JSON).
+    Includes: auth settings, credentials (encrypted).
+    """
+    data_dir = Path(__file__).parent.parent.parent / "data"
+
+    backup_data = {
+        "backup_type": "config",
+        "timestamp": datetime.now().isoformat(),
+        "version": "1.0.0",
+        "data": {}
+    }
+
+    # Auth settings
+    auth_settings_file = data_dir / "auth_settings.json"
+    if auth_settings_file.exists():
+        with open(auth_settings_file, "r") as f:
+            backup_data["data"]["auth_settings"] = json_module.load(f)
+
+    # Credentials (encrypted passwords)
+    credentials_file = data_dir / "credentials.json"
+    if credentials_file.exists():
+        with open(credentials_file, "r") as f:
+            backup_data["data"]["credentials"] = json_module.load(f)
+
+    # Config file
+    config_file = data_dir.parent / "config.json"
+    if config_file.exists():
+        with open(config_file, "r") as f:
+            backup_data["data"]["config"] = json_module.load(f)
+
+    json_bytes = json_module.dumps(backup_data, indent=2).encode("utf-8")
+    filename = f"netconfig_config_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+    return StreamingResponse(
+        io.BytesIO(json_bytes),
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@router.get("/backup/data")
+async def backup_all_data(current_user: User = Depends(require_admin)):
+    """
+    Download full data backup (ZIP).
+    Includes: all JSON files, config files, SSL certs excluded.
+    """
+    data_dir = Path(__file__).parent.parent.parent / "data"
+    project_root = data_dir.parent
+
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Add manifest
+        manifest = {
+            "backup_type": "full",
+            "timestamp": datetime.now().isoformat(),
+            "version": "1.0.0"
+        }
+        zf.writestr("manifest.json", json_module.dumps(manifest, indent=2))
+
+        # Backup data directory (exclude ssl folder)
+        if data_dir.exists():
+            for file_path in data_dir.rglob("*"):
+                if file_path.is_file() and "ssl" not in str(file_path):
+                    arcname = f"data/{file_path.relative_to(data_dir)}"
+                    zf.write(file_path, arcname)
+
+        # Backup config.json
+        config_file = project_root / "config.json"
+        if config_file.exists():
+            zf.write(config_file, "config.json")
+
+    zip_buffer.seek(0)
+    filename = f"netconfig_full_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@router.get("/backup/list")
+async def list_backups(current_user: User = Depends(require_admin)):
+    """List available backup information."""
+    data_dir = Path(__file__).parent.parent.parent / "data"
+
+    backup_info = {
+        "config_files": [],
+        "data_files": []
+    }
+
+    # List config-related files
+    config_files = ["auth_settings.json", "credentials.json"]
+    for f in config_files:
+        file_path = data_dir / f
+        if file_path.exists():
+            stat = file_path.stat()
+            backup_info["config_files"].append({
+                "name": f,
+                "size": stat.st_size,
+                "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
+            })
+
+    # List all data files
+    if data_dir.exists():
+        for file_path in data_dir.glob("*.json"):
+            if file_path.name not in config_files:
+                stat = file_path.stat()
+                backup_info["data_files"].append({
+                    "name": file_path.name,
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                })
+
+    # Check for configs directory
+    configs_dir = data_dir / "configs"
+    if configs_dir.exists():
+        config_count = sum(1 for _ in configs_dir.rglob("*.json"))
+        backup_info["device_configs_count"] = config_count
+
+    return backup_info

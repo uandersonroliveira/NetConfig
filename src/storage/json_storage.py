@@ -7,6 +7,7 @@ from typing import List, Optional, Dict, Any
 from threading import Lock
 from ..models.device import Device, DeviceStatus, DeviceVendor, DeviceGroup
 from ..models.config import Credential, ConfigSnapshot
+from ..models.user import User, AuthSettings, ADSettings
 from ..utils.crypto import encrypt_password, decrypt_password
 
 
@@ -20,6 +21,8 @@ class JsonStorage:
         self.devices_file = self.data_dir / "devices.json"
         self.credentials_file = self.data_dir / "credentials.json"
         self.groups_file = self.data_dir / "device_groups.json"
+        self.users_file = self.data_dir / "users.json"
+        self.auth_settings_file = self.data_dir / "auth_settings.json"
         self.configs_dir = self.data_dir / "configs"
         self.configs_dir.mkdir(exist_ok=True)
 
@@ -34,6 +37,11 @@ class JsonStorage:
             self._write_json(self.credentials_file, [])
         if not self.groups_file.exists():
             self._write_json(self.groups_file, [])
+        if not self.users_file.exists():
+            self._write_json(self.users_file, [])
+        if not self.auth_settings_file.exists():
+            default_settings = AuthSettings().model_dump()
+            self._write_json(self.auth_settings_file, default_settings)
 
     def _read_json(self, filepath: Path) -> Any:
         """Read JSON file with locking."""
@@ -321,3 +329,105 @@ class JsonStorage:
 
         group.device_ips = [ip for ip in group.device_ips if ip not in device_ips]
         return self.save_group(group)
+
+    # User operations
+    def list_users(self) -> List[User]:
+        """List all users."""
+        data = self._read_json(self.users_file)
+        users = []
+        for u in data:
+            if 'created_at' in u and isinstance(u['created_at'], str):
+                u['created_at'] = datetime.fromisoformat(u['created_at'])
+            if 'last_login' in u and isinstance(u['last_login'], str):
+                u['last_login'] = datetime.fromisoformat(u['last_login'])
+            users.append(User(**u))
+        return users
+
+    def get_user(self, user_id: str) -> Optional[User]:
+        """Get a user by ID."""
+        users = self.list_users()
+        for user in users:
+            if user.id == user_id:
+                return user
+        return None
+
+    def get_user_by_username(self, username: str) -> Optional[User]:
+        """Get a user by username."""
+        users = self.list_users()
+        for user in users:
+            if user.username.lower() == username.lower():
+                return user
+        return None
+
+    def save_user(self, user: User) -> User:
+        """Save or update a user."""
+        users = self._read_json(self.users_file)
+
+        existing_idx = None
+        for i, u in enumerate(users):
+            if u['id'] == user.id:
+                existing_idx = i
+                break
+
+        user_dict = user.model_dump()
+
+        if existing_idx is not None:
+            users[existing_idx] = user_dict
+        else:
+            users.append(user_dict)
+
+        self._write_json(self.users_file, users)
+        return user
+
+    def delete_user(self, user_id: str) -> bool:
+        """Delete a user by ID."""
+        users = self._read_json(self.users_file)
+        initial_len = len(users)
+        users = [u for u in users if u['id'] != user_id]
+
+        if len(users) < initial_len:
+            self._write_json(self.users_file, users)
+            return True
+        return False
+
+    def count_admin_users(self) -> int:
+        """Count the number of admin users."""
+        users = self.list_users()
+        return sum(1 for u in users if u.role == 'admin' and u.is_active)
+
+    def update_user_last_login(self, user_id: str) -> None:
+        """Update user's last login timestamp."""
+        user = self.get_user(user_id)
+        if user:
+            user.last_login = datetime.now()
+            self.save_user(user)
+
+    # Auth Settings operations
+    def get_auth_settings(self) -> AuthSettings:
+        """Get authentication settings."""
+        data = self._read_json(self.auth_settings_file)
+        if isinstance(data, list):
+            # Handle case where file was initialized as empty list
+            return AuthSettings()
+        return AuthSettings(**data)
+
+    def save_auth_settings(self, settings: AuthSettings) -> AuthSettings:
+        """Save authentication settings."""
+        # Encrypt AD bind password if present
+        settings_dict = settings.model_dump()
+        if settings.ad_settings.bind_password:
+            settings_dict['ad_settings']['bind_password'] = encrypt_password(
+                settings.ad_settings.bind_password
+            )
+        self._write_json(self.auth_settings_file, settings_dict)
+        return settings
+
+    def get_decrypted_ad_bind_password(self) -> Optional[str]:
+        """Get decrypted AD bind password."""
+        settings = self.get_auth_settings()
+        if settings.ad_settings.bind_password:
+            try:
+                return decrypt_password(settings.ad_settings.bind_password)
+            except Exception:
+                return settings.ad_settings.bind_password
+        return None

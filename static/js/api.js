@@ -11,12 +11,36 @@ const API = {
             ...options,
         };
 
+        // Add Authorization header if token is available
+        if (typeof Auth !== 'undefined' && Auth.getToken()) {
+            config.headers['Authorization'] = `Bearer ${Auth.getToken()}`;
+        }
+
         if (config.body && typeof config.body === 'object') {
             config.body = JSON.stringify(config.body);
         }
 
         try {
             const response = await fetch(url, config);
+
+            // Handle 401 Unauthorized
+            if (response.status === 401) {
+                if (typeof Auth !== 'undefined') {
+                    Auth.clearSession();
+                }
+                window.location.reload();
+                throw new Error('Session expired');
+            }
+
+            // Handle 403 Forbidden
+            if (response.status === 403) {
+                const data = await response.json();
+                if (typeof showToast === 'function') {
+                    showToast(data.detail || 'Permission denied', 'error');
+                }
+                throw new Error(data.detail || 'Permission denied');
+            }
+
             const data = await response.json();
 
             if (!response.ok) {

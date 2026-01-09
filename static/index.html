@@ -7,6 +7,64 @@
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
+    <!-- Login Page -->
+    <div id="login-page" class="login-page" style="display: none;">
+        <div class="login-container">
+            <div class="login-header">
+                <span class="icon">&#128268;</span>
+                <h1>NetConfig</h1>
+            </div>
+            <form id="login-form" class="login-form">
+                <div class="form-group">
+                    <label for="login-username" data-i18n="login.username">Username</label>
+                    <input type="text" id="login-username" class="form-control" required autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label for="login-password" data-i18n="login.password">Password</label>
+                    <input type="password" id="login-password" class="form-control" required autocomplete="current-password">
+                </div>
+                <div id="ad-login-option" class="form-group" style="display: none;">
+                    <label>
+                        <input type="checkbox" id="login-use-ad">
+                        <span data-i18n="login.useAD">Use Active Directory</span>
+                    </label>
+                </div>
+                <div id="login-error" class="alert alert-danger" style="display: none;"></div>
+                <button type="submit" class="btn btn-primary btn-block" data-i18n="login.loginButton">Login</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Change Password Modal (for forced password change) -->
+    <div id="force-password-change-modal" class="modal-overlay" style="display: none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 data-i18n="login.changePasswordRequired">Password Change Required</h3>
+            </div>
+            <form id="force-password-change-form">
+                <div class="modal-body">
+                    <p data-i18n="login.changePasswordMessage" style="margin-bottom: 1rem;">You must change your password before continuing.</p>
+                    <div class="form-group">
+                        <label for="force-current-password" data-i18n="users.currentPassword">Current Password</label>
+                        <input type="password" id="force-current-password" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="force-new-password" data-i18n="users.newPassword">New Password</label>
+                        <input type="password" id="force-new-password" class="form-control" required minlength="8">
+                    </div>
+                    <div class="form-group">
+                        <label for="force-confirm-password" data-i18n="users.confirmPassword">Confirm Password</label>
+                        <input type="password" id="force-confirm-password" class="form-control" required>
+                    </div>
+                    <div id="force-password-error" class="alert alert-danger" style="display: none;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary" data-i18n="users.changePassword">Change Password</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <div class="app-container">
         <!-- Sidebar -->
         <aside class="sidebar">
@@ -16,27 +74,50 @@
             </div>
             <nav>
                 <ul class="nav-menu">
-                    <li><a href="#" data-page="dashboard" class="active">&#128202; Dashboard</a></li>
-                    <li><a href="#" data-page="devices">&#128421; Devices</a></li>
-                    <li><a href="#" data-page="scan">&#128269; Scan Network</a></li>
+                    <li><a href="#" data-page="dashboard" class="active">&#128202; <span data-i18n="nav.dashboard">Dashboard</span></a></li>
+                    <li><a href="#" data-page="devices">&#128421; <span data-i18n="nav.devices">Devices</span></a></li>
                     <li class="nav-submenu">
-                        <a href="#" class="nav-submenu-toggle">&#128230; Data Collection <span class="nav-arrow">&#9662;</span></a>
+                        <a href="#" class="nav-submenu-toggle">&#128230; <span data-i18n="nav.dataCollection">Data Collection</span> <span class="nav-arrow">&#9662;</span></a>
                         <ul class="nav-submenu-items">
-                            <li><a href="#" data-page="collect">&#128196; Configurations</a></li>
-                            <li><a href="#" data-page="logs">&#128220; Logs</a></li>
+                            <li><a href="#" data-page="collect">&#128196; <span data-i18n="nav.configurations">Configurations</span></a></li>
+                            <li><a href="#" data-page="logs">&#128220; <span data-i18n="nav.logs">Logs</span></a></li>
                         </ul>
                     </li>
                     <li class="nav-submenu">
-                        <a href="#" class="nav-submenu-toggle">&#128295; Tools <span class="nav-arrow">&#9662;</span></a>
+                        <a href="#" class="nav-submenu-toggle">&#128295; <span data-i18n="nav.tools">Tools</span> <span class="nav-arrow">&#9662;</span></a>
                         <ul class="nav-submenu-items">
-                            <li><a href="#" data-page="compare">&#128203; Config Compare</a></li>
-                            <li><a href="#" data-page="mac-search">&#128279; MAC Search</a></li>
-                            <li><a href="#" data-page="reports">&#128196; Reports</a></li>
+                            <li><a href="#" data-page="scan">&#128269; <span data-i18n="nav.scanNetwork">Scan Network</span></a></li>
+                            <li><a href="#" data-page="compare">&#128203; <span data-i18n="nav.configCompare">Config Compare</span></a></li>
+                            <li><a href="#" data-page="mac-search">&#128279; <span data-i18n="nav.macSearch">MAC Search</span></a></li>
+                            <li><a href="#" data-page="reports">&#128196; <span data-i18n="nav.reports">Reports</span></a></li>
                         </ul>
                     </li>
-                    <li><a href="#" data-page="credentials">&#128274; Credentials</a></li>
+                    <li class="nav-submenu">
+                        <a href="#" class="nav-submenu-toggle">&#128274; <span data-i18n="nav.security">Security</span> <span class="nav-arrow">&#9662;</span></a>
+                        <ul class="nav-submenu-items">
+                            <li data-admin-only><a href="#" data-page="users">&#128101; <span data-i18n="nav.users">Users</span></a></li>
+                            <li><a href="#" data-page="credentials">&#128273; <span data-i18n="nav.credentials">Credentials</span></a></li>
+                            <li data-admin-only><a href="#" data-page="ad-settings">&#127970; <span data-i18n="nav.adSettings">Active Directory</span></a></li>
+                            <li data-admin-only><a href="#" data-page="backup">&#128190; <span data-i18n="nav.backup">Backup</span></a></li>
+                        </ul>
+                    </li>
+                    <li class="nav-submenu">
+                        <a href="#" class="nav-submenu-toggle">&#9881; <span data-i18n="nav.settings">Settings</span> <span class="nav-arrow">&#9662;</span></a>
+                        <ul class="nav-submenu-items">
+                            <li><a href="#" data-page="preferences">&#9881; <span data-i18n="nav.preferences">Preferences</span></a></li>
+                        </ul>
+                    </li>
                 </ul>
             </nav>
+            <!-- User info section at bottom of sidebar -->
+            <div class="sidebar-footer" id="sidebar-user-info">
+                <div class="user-info">
+                    <span class="user-icon">&#128100;</span>
+                    <span id="sidebar-username" class="user-name">User</span>
+                    <span id="sidebar-role" class="user-role badge badge-info">admin</span>
+                </div>
+                <button class="btn btn-sm btn-outline" onclick="Auth.logout()" data-i18n="nav.logout">Logout</button>
+            </div>
         </aside>
 
         <!-- Main Content -->
@@ -44,24 +125,24 @@
             <!-- Dashboard Page -->
             <div id="page-dashboard" class="page-view active">
                 <div class="page-header">
-                    <h2>Dashboard</h2>
+                    <h2 data-i18n="dashboard.title">Dashboard</h2>
                 </div>
                 <div class="stats-grid">
                     <div class="stat-card primary">
                         <div class="stat-value" id="stat-total-devices">0</div>
-                        <div class="stat-label">Total Devices</div>
+                        <div class="stat-label" data-i18n="dashboard.totalDevices">Total Devices</div>
                     </div>
                     <div class="stat-card success">
                         <div class="stat-value" id="stat-online">0</div>
-                        <div class="stat-label">Online</div>
+                        <div class="stat-label" data-i18n="dashboard.online">Online</div>
                     </div>
                     <div class="stat-card danger">
                         <div class="stat-value" id="stat-offline">0</div>
-                        <div class="stat-label">Offline</div>
+                        <div class="stat-label" data-i18n="dashboard.offline">Offline</div>
                     </div>
                     <div class="stat-card warning">
                         <div class="stat-value" id="stat-credentials">0</div>
-                        <div class="stat-label">Credentials</div>
+                        <div class="stat-label" data-i18n="dashboard.credentials">Credentials</div>
                     </div>
                 </div>
             </div>
@@ -69,27 +150,24 @@
             <!-- Devices Page -->
             <div id="page-devices" class="page-view">
                 <div class="page-header">
-                    <h2>Devices</h2>
+                    <h2 data-i18n="devices.title">Devices</h2>
                     <div style="display: flex; gap: 0.5rem;">
                         <button class="btn btn-danger" id="bulk-delete-btn" onclick="bulkDeleteDevices()" style="display: none;">
-                            &#128465; Delete Selected (<span id="selected-count">0</span>)
+                            &#128465; <span data-i18n="devices.deleteSelected">Delete Selected</span> (<span id="selected-count">0</span>)
                         </button>
                         <button class="btn btn-secondary" onclick="checkDevicesStatus()">
-                            &#8635; Update Status
-                        </button>
-                        <button class="btn btn-secondary" onclick="openCollectConfigsModal()">
-                            &#128230; Collect Configs
+                            &#8635; <span data-i18n="devices.updateStatus">Update Status</span>
                         </button>
                         <button class="btn btn-primary" onclick="openModal('add-device-modal')">
-                            + Add Devices
+                            + <span data-i18n="devices.addDevices">Add Devices</span>
                         </button>
                     </div>
                 </div>
 
                 <!-- Device Page Tabs -->
                 <div class="tabs" id="devices-tabs">
-                    <button class="tab-btn active" data-tab="devices-list-tab">All Devices</button>
-                    <button class="tab-btn" data-tab="devices-groups-tab">Groups</button>
+                    <button class="tab-btn active" data-tab="devices-list-tab" data-i18n="devices.tabAllDevices">All Devices</button>
+                    <button class="tab-btn" data-tab="devices-groups-tab" data-i18n="devices.tabGroups">Groups</button>
                 </div>
 
                 <!-- All Devices Tab -->
@@ -99,7 +177,7 @@
                             <div class="progress-bar-fill" style="width: 0%"></div>
                         </div>
                         <div class="progress-text">
-                            <span>Checking status...</span>
+                            <span data-i18n="devices.checkingStatus">Checking status...</span>
                         </div>
                     </div>
                     <div id="devices-collect-progress" class="progress-container" style="display: none;">
@@ -107,17 +185,17 @@
                             <div class="progress-bar-fill" style="width: 0%"></div>
                         </div>
                         <div class="progress-text">
-                            <span>Collecting configs...</span>
+                            <span data-i18n="devices.collectingConfigs">Collecting configs...</span>
                         </div>
                     </div>
                     <div id="devices-collect-device-list" class="card" style="display: none; margin-bottom: 1rem;">
                         <div class="card-header" style="border-bottom: 1px solid var(--border-color); margin: -1.5rem -1.5rem 1rem -1.5rem; padding: 1rem 1.5rem;">
-                            <span class="card-title">Collection Progress</span>
+                            <span class="card-title" data-i18n="devices.collectionProgress">Collection Progress</span>
                         </div>
                         <div id="devices-collect-device-progress" class="device-progress-list" style="max-height: 200px; overflow-y: auto;"></div>
                     </div>
                     <div class="card">
-                        <div class="selection-helpers">
+                        <div class="selection-helpers" data-i18n="devices.selectionHelpers">
                             <kbd>Shift</kbd>+Click for range | <kbd>Ctrl</kbd>+Click to toggle | <kbd>Ctrl</kbd>+<kbd>A</kbd> select all | Right-click for group actions
                         </div>
                         <div class="table-container">
@@ -127,12 +205,12 @@
                                         <th style="width: 40px;">
                                             <input type="checkbox" id="select-all-devices" onchange="toggleSelectAll(this)">
                                         </th>
-                                        <th>IP Address</th>
-                                        <th>Hostname</th>
-                                        <th>Vendor</th>
-                                        <th>Status</th>
-                                        <th>Model</th>
-                                        <th>Actions</th>
+                                        <th data-i18n="devices.ipAddress">IP Address</th>
+                                        <th data-i18n="devices.hostname">Hostname</th>
+                                        <th data-i18n="devices.vendor">Vendor</th>
+                                        <th data-i18n="devices.status">Status</th>
+                                        <th data-i18n="devices.model">Model</th>
+                                        <th data-i18n="common.actions">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="devices-tbody">
@@ -145,16 +223,16 @@
                 <!-- Groups Tab -->
                 <div id="devices-groups-tab" class="tab-content">
                     <div class="groups-header">
-                        <h3>Device Groups</h3>
+                        <h3 data-i18n="groups.title">Device Groups</h3>
                         <button class="btn btn-primary" onclick="openCreateGroupModal()">
-                            + Create Group
+                            + <span data-i18n="groups.createGroup">Create Group</span>
                         </button>
                     </div>
                     <div id="groups-list" class="groups-grid">
                         <div class="groups-empty">
                             <div class="groups-empty-icon">&#128193;</div>
-                            <p>No groups created yet</p>
-                            <button class="btn btn-primary" onclick="openCreateGroupModal()">Create Your First Group</button>
+                            <p data-i18n="groups.noGroups">No groups created yet</p>
+                            <button class="btn btn-primary" onclick="openCreateGroupModal()" data-i18n="groups.createFirstGroup">Create Your First Group</button>
                         </div>
                     </div>
                 </div>
@@ -163,34 +241,34 @@
             <!-- Scan Page -->
             <div id="page-scan" class="page-view">
                 <div class="page-header">
-                    <h2>Scan Network</h2>
+                    <h2 data-i18n="scan.title">Scan Network</h2>
                 </div>
                 <div class="card">
-                    <h3 style="margin-bottom: 1rem;">IP Range Scan</h3>
+                    <h3 style="margin-bottom: 1rem;" data-i18n="scan.ipRangeScan">IP Range Scan</h3>
                     <form id="scan-form">
                         <div class="form-group">
-                            <label for="scan-ip-range">IP Range</label>
+                            <label for="scan-ip-range" data-i18n="scan.ipRange">IP Range</label>
                             <input type="text" id="scan-ip-range" class="form-control"
-                                   placeholder="192.168.1.0/24 or 192.168.1.1-50" required>
-                            <small style="color: var(--text-muted);">
+                                   data-i18n-placeholder="scan.ipRangePlaceholder" placeholder="192.168.1.0/24 or 192.168.1.1-50" required>
+                            <small style="color: var(--text-muted);" data-i18n="scan.ipRangeHelper">
                                 Supports CIDR notation (192.168.1.0/24) or range (192.168.1.1-50)
                             </small>
                         </div>
-                        <button type="submit" class="btn btn-primary" id="scan-btn">Start Scan</button>
+                        <button type="submit" class="btn btn-primary" id="scan-btn" data-i18n="scan.startScan">Start Scan</button>
                     </form>
                     <div id="scan-progress" class="progress-container" style="display: none;">
                         <div class="progress-bar">
                             <div class="progress-bar-fill" style="width: 0%"></div>
                         </div>
                         <div class="progress-text">
-                            <span>Starting...</span>
+                            <span data-i18n="common.starting">Starting...</span>
                         </div>
                     </div>
 
                     <!-- Scan Results Selection -->
                     <div id="scan-results" style="display: none; margin-top: 1.5rem;">
-                        <h4>Discovered Devices</h4>
-                        <p style="color: var(--text-muted); margin-bottom: 0.5rem;">
+                        <h4 data-i18n="scan.discoveredDevices">Discovered Devices</h4>
+                        <p style="color: var(--text-muted); margin-bottom: 0.5rem;" data-i18n="scan.selectToAdd">
                             Select devices to add to your inventory:
                         </p>
                         <div class="table-container" style="max-height: 300px; overflow-y: auto;">
@@ -200,10 +278,10 @@
                                         <th style="width: 40px;">
                                             <input type="checkbox" id="scan-select-all" onchange="toggleScanSelectAll(this)">
                                         </th>
-                                        <th>IP Address</th>
-                                        <th>Response Time</th>
-                                        <th>Vendor</th>
-                                        <th>Status</th>
+                                        <th data-i18n="devices.ipAddress">IP Address</th>
+                                        <th data-i18n="scan.responseTime">Response Time</th>
+                                        <th data-i18n="devices.vendor">Vendor</th>
+                                        <th data-i18n="devices.status">Status</th>
                                     </tr>
                                 </thead>
                                 <tbody id="scan-results-tbody"></tbody>
@@ -211,59 +289,59 @@
                         </div>
                         <div style="margin-top: 1rem; display: flex; gap: 0.5rem; align-items: center;">
                             <button class="btn btn-primary" id="add-scanned-devices-btn" onclick="addSelectedScannedDevices()">
-                                Add Selected (<span id="scan-selected-count">0</span>)
+                                <span data-i18n="scan.addSelected">Add Selected</span> (<span id="scan-selected-count">0</span>)
                             </button>
-                            <button class="btn btn-secondary" onclick="clearScanResults()">Clear Results</button>
+                            <button class="btn btn-secondary" onclick="clearScanResults()" data-i18n="scan.clearResults">Clear Results</button>
                         </div>
                     </div>
                 </div>
 
                 <div class="card" style="margin-top: 1rem;">
-                    <h3 style="margin-bottom: 1rem;">LLDP/CDP Discovery</h3>
-                    <p style="color: var(--text-muted); margin-bottom: 1rem;">
+                    <h3 style="margin-bottom: 1rem;" data-i18n="scan.lldpDiscovery.title">LLDP/CDP Discovery</h3>
+                    <p style="color: var(--text-muted); margin-bottom: 1rem;" data-i18n="scan.lldpDiscovery.description">
                         Discover network neighbors by querying LLDP/CDP from devices.
                     </p>
                     <form id="discover-form">
                         <div class="form-group">
-                            <label for="discover-ip-range">IP Range (optional)</label>
+                            <label for="discover-ip-range" data-i18n="scan.lldpDiscovery.ipRangeOptional">IP Range (optional)</label>
                             <input type="text" id="discover-ip-range" class="form-control"
                                    placeholder="192.168.1.0/24 or 192.168.1.1-50 (leave empty to use known devices)">
-                            <small style="color: var(--text-muted);">
+                            <small style="color: var(--text-muted);" data-i18n="scan.lldpDiscovery.ipRangeHelper">
                                 If provided, scans the range first, detects vendors, then discovers neighbors
                             </small>
                         </div>
                         <div class="form-group">
-                            <label for="discover-credential">Credential</label>
+                            <label for="discover-credential" data-i18n="common.credential">Credential</label>
                             <select id="discover-credential" class="form-control credential-select">
-                                <option value="">Use Default</option>
+                                <option value="" data-i18n="common.useDefault">Use Default</option>
                             </select>
                         </div>
-                        <button type="submit" class="btn btn-primary" id="discover-btn">Start Discovery</button>
+                        <button type="submit" class="btn btn-primary" id="discover-btn" data-i18n="scan.lldpDiscovery.startDiscovery">Start Discovery</button>
                     </form>
                     <div id="discover-progress" class="progress-container" style="display: none;">
                         <div class="progress-bar">
                             <div class="progress-bar-fill" style="width: 0%"></div>
                         </div>
                         <div class="progress-text">
-                            <span>Starting...</span>
+                            <span data-i18n="common.starting">Starting...</span>
                         </div>
                     </div>
                     <div id="discover-device-list" style="margin-top: 1rem; display: none;">
-                        <h4>Devices Being Queried:</h4>
+                        <h4 data-i18n="scan.lldpDiscovery.devicesQueried">Devices Being Queried:</h4>
                         <div id="discover-device-progress" class="device-progress-list"></div>
                     </div>
                     <div id="discover-results" style="margin-top: 1rem; display: none;">
-                        <h4>Discovered Neighbors:</h4>
+                        <h4 data-i18n="scan.lldpDiscovery.discoveredNeighbors">Discovered Neighbors:</h4>
                         <div class="table-container">
                             <table>
                                 <thead>
                                     <tr>
-                                        <th>Neighbor Device</th>
-                                        <th>Source Device</th>
-                                        <th>Protocol</th>
-                                        <th>Local Interface</th>
-                                        <th>Remote Interface</th>
-                                        <th>Detected Vendor</th>
+                                        <th data-i18n="scan.lldpDiscovery.neighborDevice">Neighbor Device</th>
+                                        <th data-i18n="scan.lldpDiscovery.sourceDevice">Source Device</th>
+                                        <th data-i18n="scan.lldpDiscovery.protocol">Protocol</th>
+                                        <th data-i18n="scan.lldpDiscovery.localInterface">Local Interface</th>
+                                        <th data-i18n="scan.lldpDiscovery.remoteInterface">Remote Interface</th>
+                                        <th data-i18n="scan.lldpDiscovery.detectedVendor">Detected Vendor</th>
                                     </tr>
                                 </thead>
                                 <tbody id="discover-results-tbody"></tbody>
@@ -276,35 +354,35 @@
             <!-- Configurations Collection Page -->
             <div id="page-collect" class="page-view">
                 <div class="page-header">
-                    <h2>Configurations Collection</h2>
+                    <h2 data-i18n="collect.title">Configurations Collection</h2>
                 </div>
                 <div class="card">
                     <div class="form-group">
-                        <label for="collect-page-credential">Credential</label>
+                        <label for="collect-page-credential" data-i18n="common.credential">Credential</label>
                         <select id="collect-page-credential" class="form-control credential-select">
-                            <option value="">Use Default</option>
+                            <option value="" data-i18n="common.useDefault">Use Default</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>Select devices to collect from:</label>
+                        <label data-i18n="collect.selectDevices">Select devices to collect from:</label>
                         <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem; margin-bottom: 0.5rem;">
                             <select id="collect-page-group" class="form-control" style="flex: 1;" onchange="selectCollectPageGroup(this.value)">
-                                <option value="">-- Select Group --</option>
+                                <option value="" data-i18n="common.selectGroup">-- Select Group --</option>
                             </select>
-                            <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllCollectPageDevices(true)">All</button>
-                            <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllCollectPageDevices(false)">None</button>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllCollectPageDevices(true)" data-i18n="common.all">All</button>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllCollectPageDevices(false)" data-i18n="common.none">None</button>
                         </div>
                         <div style="margin-bottom: 0.5rem;">
-                            <input type="text" id="collect-page-filter" class="form-control" placeholder="Filter by hostname, IP, or vendor..." oninput="filterCollectPageDevices(this.value)">
+                            <input type="text" id="collect-page-filter" class="form-control" data-i18n-placeholder="common.filterPlaceholder" placeholder="Filter by hostname, IP, or vendor..." oninput="filterCollectPageDevices(this.value)">
                         </div>
                         <div id="collect-page-device-list" style="max-height: 350px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 4px; padding: 0.5rem;">
-                            <p class="empty-state">Loading devices...</p>
+                            <p class="empty-state" data-i18n="common.loading">Loading devices...</p>
                         </div>
                         <div style="margin-top: 0.5rem;">
                             <span id="collect-page-selected-count" style="color: var(--text-muted);">0 selected</span>
                         </div>
                     </div>
-                    <button type="button" class="btn btn-primary" id="collect-page-btn" onclick="startCollectFromPage()">
+                    <button type="button" class="btn btn-primary" id="collect-page-btn" onclick="startCollectFromPage()" data-i18n="collect.startCollection">
                         Start Collection
                     </button>
                     <div id="collect-progress" class="progress-container" style="display: none; margin-top: 1rem;">
@@ -312,13 +390,13 @@
                             <div class="progress-bar-fill" style="width: 0%"></div>
                         </div>
                         <div class="progress-text">
-                            <span>Starting...</span>
+                            <span data-i18n="common.starting">Starting...</span>
                         </div>
                     </div>
                 </div>
                 <div id="collect-page-device-progress" class="card" style="margin-top: 1rem; display: none;">
                     <div class="card-header" style="border-bottom: 1px solid var(--border-color); margin: -1.5rem -1.5rem 1rem -1.5rem; padding: 1rem 1.5rem;">
-                        <span class="card-title">Collection Progress</span>
+                        <span class="card-title" data-i18n="collect.collectionProgress">Collection Progress</span>
                     </div>
                     <div id="collect-page-device-status" class="device-progress-list" style="max-height: 300px; overflow-y: auto;"></div>
                 </div>
@@ -327,55 +405,55 @@
             <!-- Logs Collection Page -->
             <div id="page-logs" class="page-view">
                 <div class="page-header">
-                    <h2>Logs Collection</h2>
+                    <h2 data-i18n="logs.title">Logs Collection</h2>
                 </div>
                 <div class="card">
                     <form id="logs-form">
                         <div class="form-group">
-                            <label for="logs-credential">Credential</label>
+                            <label for="logs-credential" data-i18n="common.credential">Credential</label>
                             <select id="logs-credential" class="form-control credential-select">
-                                <option value="">Use Default</option>
+                                <option value="" data-i18n="common.useDefault">Use Default</option>
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>Select devices to collect logs from:</label>
+                            <label data-i18n="logs.selectDevices">Select devices to collect logs from:</label>
                             <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem; margin-bottom: 0.5rem;">
                                 <select id="logs-group" class="form-control" style="flex: 1;" onchange="selectLogsGroup(this.value)">
-                                    <option value="">-- Select Group --</option>
+                                    <option value="" data-i18n="common.selectGroup">-- Select Group --</option>
                                 </select>
-                                <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllLogDevices(true)">All</button>
-                                <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllLogDevices(false)">None</button>
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllLogDevices(true)" data-i18n="common.all">All</button>
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllLogDevices(false)" data-i18n="common.none">None</button>
                             </div>
                             <div style="margin-bottom: 0.5rem;">
-                                <input type="text" id="logs-filter" class="form-control" placeholder="Filter by hostname, IP, or vendor..." oninput="filterLogsDevices(this.value)">
+                                <input type="text" id="logs-filter" class="form-control" data-i18n-placeholder="common.filterPlaceholder" placeholder="Filter by hostname, IP, or vendor..." oninput="filterLogsDevices(this.value)">
                             </div>
                             <div id="logs-device-list" class="card" style="max-height: 300px; overflow-y: auto; padding: 0.75rem;">
-                                <p class="empty-state" style="padding: 1rem;">Loading devices...</p>
+                                <p class="empty-state" style="padding: 1rem;" data-i18n="common.loading">Loading devices...</p>
                             </div>
                             <div style="margin-top: 0.5rem;">
                                 <span id="logs-selected-count" style="color: var(--text-muted);">0 selected</span>
                             </div>
                         </div>
-                        <button type="submit" class="btn btn-primary" id="logs-collect-btn">Start Log Collection</button>
+                        <button type="submit" class="btn btn-primary" id="logs-collect-btn" data-i18n="logs.startCollection">Start Log Collection</button>
                     </form>
                     <div id="logs-progress" class="progress-container" style="display: none; margin-top: 1rem;">
                         <div class="progress-bar">
                             <div class="progress-bar-fill" style="width: 0%"></div>
                         </div>
                         <div class="progress-text">
-                            <span>Starting...</span>
+                            <span data-i18n="common.starting">Starting...</span>
                         </div>
                     </div>
                 </div>
                 <div id="logs-device-progress" class="card" style="margin-top: 1rem; display: none;">
                     <div class="card-header" style="border-bottom: 1px solid var(--border-color); margin: -1.5rem -1.5rem 1rem -1.5rem; padding: 1rem 1.5rem;">
-                        <span class="card-title">Collection Progress</span>
+                        <span class="card-title" data-i18n="logs.collectionProgress">Collection Progress</span>
                     </div>
                     <div id="logs-device-status-list" style="max-height: 300px; overflow-y: auto;"></div>
                 </div>
                 <div id="logs-results" class="card" style="margin-top: 1rem; display: none;">
                     <div class="card-header" style="border-bottom: 1px solid var(--border-color); margin: -1.5rem -1.5rem 1rem -1.5rem; padding: 1rem 1.5rem;">
-                        <span class="card-title">Collected Logs</span>
+                        <span class="card-title" data-i18n="logs.collectedLogs">Collected Logs</span>
                     </div>
                     <div id="logs-results-list"></div>
                 </div>
@@ -384,29 +462,33 @@
             <!-- Compare Page -->
             <div id="page-compare" class="page-view">
                 <div class="page-header">
-                    <h2>Compare Configurations</h2>
+                    <h2 data-i18n="compare.title">Compare Configurations</h2>
                 </div>
                 <div class="card">
                     <div class="form-group">
-                        <label for="compare-reference">Reference Device (baseline)</label>
+                        <label for="compare-reference" data-i18n="compare.referenceDevice">Reference Device (baseline)</label>
                         <select id="compare-reference" class="form-control">
-                            <option value="">Select reference device...</option>
+                            <option value="" data-i18n="compare.selectReference">Select reference device...</option>
                         </select>
-                        <small style="color: var(--text-muted);">This device's configuration will be used as the baseline for comparison</small>
+                        <small style="color: var(--text-muted);" data-i18n="compare.referenceHelper">This device's configuration will be used as the baseline for comparison</small>
                     </div>
                     <div class="form-group">
-                        <label>Target Devices (to compare with reference)</label>
-                        <div id="compare-targets-list" class="card" style="max-height: 250px; overflow-y: auto; padding: 0.75rem; margin-top: 0.5rem;">
-                            <p class="empty-state" style="padding: 1rem;">Select a reference device first</p>
+                        <label data-i18n="compare.targetDevices">Target Devices (to compare with reference)</label>
+                        <input type="text" id="compare-filter" class="form-control" style="margin-top: 0.5rem; margin-bottom: 0.5rem;"
+                               placeholder="Filter by hostname, IP, or vendor..." data-i18n-placeholder="common.filterPlaceholder"
+                               oninput="filterCompareTargets(this.value)">
+                        <div id="compare-targets-list" class="card" style="max-height: 250px; overflow-y: auto; padding: 0.75rem;">
+                            <p class="empty-state" style="padding: 1rem;" data-i18n="compare.selectReferenceFirst">Select a reference device first</p>
                         </div>
                         <div style="margin-top: 0.5rem;">
-                            <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllCompareTargets(true)">Select All</button>
-                            <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllCompareTargets(false)">Select None</button>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllCompareTargets(true)" data-i18n="groups.selectAll">Select All</button>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllCompareTargets(false)" data-i18n="groups.selectNone">Select None</button>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="selectFilteredCompareTargets()" data-i18n="compare.selectFiltered">Select Filtered</button>
                             <span id="compare-selected-count" style="margin-left: 1rem; color: var(--text-muted);">0 selected</span>
                         </div>
                     </div>
                     <div style="margin-top: 1rem;">
-                        <button type="button" class="btn btn-primary" onclick="startBatchComparison()" id="start-compare-btn" disabled>
+                        <button type="button" class="btn btn-primary" onclick="startBatchComparison()" id="start-compare-btn" disabled data-i18n="compare.startComparison">
                             Start Comparison
                         </button>
                     </div>
@@ -416,16 +498,16 @@
                         <div class="progress-bar-fill" style="width: 0%"></div>
                     </div>
                     <div class="progress-text">
-                        <span>Comparing...</span>
+                        <span data-i18n="compare.comparing">Comparing...</span>
                     </div>
                 </div>
                 <div id="compare-complete" class="card" style="display: none; margin-top: 1rem;">
                     <div style="display: flex; align-items: center; justify-content: space-between;">
                         <div>
-                            <h4 style="margin-bottom: 0.25rem;">Comparison Complete</h4>
+                            <h4 style="margin-bottom: 0.25rem;" data-i18n="compare.comparisonComplete">Comparison Complete</h4>
                             <p id="compare-complete-summary" style="color: var(--text-muted); margin: 0;"></p>
                         </div>
-                        <button class="btn btn-primary" onclick="viewComparisonReport()">
+                        <button class="btn btn-primary" onclick="viewComparisonReport()" data-i18n="compare.viewReport">
                             View Report
                         </button>
                     </div>
@@ -435,18 +517,18 @@
             <!-- Reports Page -->
             <div id="page-reports" class="page-view">
                 <div class="page-header">
-                    <h2>Reports</h2>
+                    <h2 data-i18n="reports.title">Reports</h2>
                 </div>
                 <div class="tabs">
-                    <button class="tab-btn active" data-tab="comparison-reports">Comparison Reports</button>
+                    <button class="tab-btn active" data-tab="comparison-reports" data-i18n="reports.tabComparison">Comparison Reports</button>
                 </div>
                 <div id="tab-comparison-reports" class="tab-content active">
                     <div class="card">
                         <div class="card-header">
-                            <span class="card-title">Recent Comparisons</span>
+                            <span class="card-title" data-i18n="reports.recentComparisons">Recent Comparisons</span>
                         </div>
                         <div id="comparison-reports-list">
-                            <p class="empty-state">No comparison reports yet. Run a comparison from the Compare page.</p>
+                            <p class="empty-state" data-i18n="reports.noReports">No comparison reports yet. Run a comparison from the Compare page.</p>
                         </div>
                     </div>
                 </div>
@@ -455,58 +537,58 @@
             <!-- MAC Search Page -->
             <div id="page-mac-search" class="page-view">
                 <div class="page-header">
-                    <h2>MAC Address Search</h2>
+                    <h2 data-i18n="macSearch.title">MAC Address Search</h2>
                 </div>
                 <div class="card">
                     <form id="mac-search-form">
                         <div class="form-group">
-                            <label for="mac-address">MAC Address</label>
+                            <label for="mac-address" data-i18n="macSearch.macAddress">MAC Address</label>
                             <input type="text" id="mac-address" class="form-control"
-                                   placeholder="00:11:22:33:44:55 or 00:11:22:* (wildcard)" required>
+                                   data-i18n-placeholder="macSearch.macPlaceholder" placeholder="00:11:22:33:44:55 or 00:11:22:* (wildcard)" required>
                             <small style="color: var(--text-muted);">
-                                Supports wildcards: <code>*</code> matches any sequence, <code>?</code> matches single character.<br>
-                                Examples: <code>00:11:22:*</code>, <code>00:11:??:33:*</code>, <code>0011*</code>
+                                <span data-i18n="macSearch.macHelper">Supports wildcards: * matches any sequence, ? matches single character.</span><br>
+                                <span data-i18n="macSearch.macExamples">Examples: 00:11:22:*, 00:11:??:33:*, 0011*</span>
                             </small>
                         </div>
                         <div class="form-group">
-                            <label for="mac-search-credential">Credential</label>
+                            <label for="mac-search-credential" data-i18n="common.credential">Credential</label>
                             <select id="mac-search-credential" class="form-control credential-select">
-                                <option value="">Use Default</option>
+                                <option value="" data-i18n="common.useDefault">Use Default</option>
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>Select devices to search:</label>
+                            <label data-i18n="macSearch.selectDevices">Select devices to search:</label>
                             <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem; margin-bottom: 0.5rem;">
                                 <select id="mac-search-group" class="form-control" style="flex: 1;" onchange="selectMacSearchGroup(this.value)">
-                                    <option value="">-- Select Group --</option>
+                                    <option value="" data-i18n="common.selectGroup">-- Select Group --</option>
                                 </select>
-                                <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllMacSearchDevices(true)">All</button>
-                                <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllMacSearchDevices(false)">None</button>
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllMacSearchDevices(true)" data-i18n="common.all">All</button>
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllMacSearchDevices(false)" data-i18n="common.none">None</button>
                             </div>
                             <div style="margin-bottom: 0.5rem;">
-                                <input type="text" id="mac-search-filter" class="form-control" placeholder="Filter by hostname, IP, or vendor..." oninput="filterMacSearchDevices(this.value)">
+                                <input type="text" id="mac-search-filter" class="form-control" data-i18n-placeholder="common.filterPlaceholder" placeholder="Filter by hostname, IP, or vendor..." oninput="filterMacSearchDevices(this.value)">
                             </div>
                             <div id="mac-search-device-list" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 4px; padding: 0.5rem;">
-                                <p class="empty-state">Loading devices...</p>
+                                <p class="empty-state" data-i18n="common.loading">Loading devices...</p>
                             </div>
                             <div style="margin-top: 0.5rem;">
                                 <span id="mac-search-selected-count" style="color: var(--text-muted);">0 selected</span>
                             </div>
                         </div>
-                        <button type="submit" class="btn btn-primary" id="mac-search-btn">Search</button>
+                        <button type="submit" class="btn btn-primary" id="mac-search-btn" data-i18n="macSearch.search">Search</button>
                     </form>
                     <div id="mac_search-progress" class="progress-container" style="display: none; margin-top: 1rem;">
                         <div class="progress-bar">
                             <div class="progress-bar-fill" style="width: 0%"></div>
                         </div>
                         <div class="progress-text">
-                            <span>Searching devices...</span>
+                            <span data-i18n="macSearch.searchingDevices">Searching devices...</span>
                         </div>
                     </div>
                 </div>
                 <div id="mac-device-progress" class="card" style="margin-top: 1rem; display: none;">
                     <div class="card-header" style="border-bottom: 1px solid var(--border-color); margin: -1.5rem -1.5rem 1rem -1.5rem; padding: 1rem 1.5rem;">
-                        <span class="card-title">Scanning Devices</span>
+                        <span class="card-title" data-i18n="macSearch.scanningDevices">Scanning Devices</span>
                     </div>
                     <div id="mac-device-list" style="max-height: 300px; overflow-y: auto;"></div>
                 </div>
@@ -516,9 +598,9 @@
             <!-- Credentials Page -->
             <div id="page-credentials" class="page-view">
                 <div class="page-header">
-                    <h2>Credentials</h2>
+                    <h2 data-i18n="credentials.title">Credentials</h2>
                     <button class="btn btn-primary" onclick="openModal('add-credential-modal')">
-                        + Add Credential
+                        + <span data-i18n="credentials.addCredential">Add Credential</span>
                     </button>
                 </div>
                 <div class="card">
@@ -526,16 +608,182 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Username</th>
-                                    <th>Description</th>
-                                    <th>Default</th>
-                                    <th>Created</th>
-                                    <th>Actions</th>
+                                    <th data-i18n="credentials.username">Username</th>
+                                    <th data-i18n="credentials.description">Description</th>
+                                    <th data-i18n="credentials.default">Default</th>
+                                    <th data-i18n="credentials.created">Created</th>
+                                    <th data-i18n="common.actions">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="credentials-tbody">
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Preferences Page -->
+            <div id="page-preferences" class="page-view">
+                <div class="page-header">
+                    <h2 data-i18n="preferences.title">Preferences</h2>
+                </div>
+                <div class="card">
+                    <h3 data-i18n="preferences.language">Language</h3>
+                    <p class="text-muted" data-i18n="preferences.languageDesc" style="color: var(--text-muted); margin-bottom: 1rem;">
+                        Select your preferred language for the interface.
+                    </p>
+                    <div class="form-group">
+                        <select id="language-select" class="form-control" style="max-width: 300px;">
+                            <option value="en-US">English (US)</option>
+                            <option value="pt-BR">Português (Brasil)</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary" onclick="saveLanguagePreference()">
+                        <span data-i18n="common.save">Save</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Users Page (Admin Only) -->
+            <div id="page-users" class="page-view" data-admin-only>
+                <div class="page-header">
+                    <h2 data-i18n="users.title">Users</h2>
+                    <button class="btn btn-primary" onclick="openModal('add-user-modal')">
+                        + <span data-i18n="users.addUser">Add User</span>
+                    </button>
+                </div>
+                <div class="card">
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th data-i18n="users.username">Username</th>
+                                    <th data-i18n="users.role">Role</th>
+                                    <th data-i18n="users.authType">Auth Type</th>
+                                    <th data-i18n="users.email">Email</th>
+                                    <th data-i18n="users.lastLogin">Last Login</th>
+                                    <th data-i18n="users.status">Status</th>
+                                    <th data-i18n="common.actions">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AD Settings Page (Admin Only) -->
+            <div id="page-ad-settings" class="page-view" data-admin-only>
+                <div class="page-header">
+                    <h2 data-i18n="adSettings.title">Active Directory Settings</h2>
+                </div>
+                <div class="card">
+                    <form id="ad-settings-form">
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="ad-enabled">
+                                <span data-i18n="adSettings.enable">Enable Active Directory Authentication</span>
+                            </label>
+                        </div>
+                        <div id="ad-settings-fields" style="display: none;">
+                            <h4 style="margin-top: 1.5rem; margin-bottom: 1rem;" data-i18n="adSettings.serverConfig">Server Configuration</h4>
+                            <div class="form-row">
+                                <div class="form-group" style="flex: 2;">
+                                    <label for="ad-server" data-i18n="adSettings.server">Server Address</label>
+                                    <input type="text" id="ad-server" class="form-control" placeholder="ldap.example.com">
+                                </div>
+                                <div class="form-group" style="flex: 1;">
+                                    <label for="ad-port" data-i18n="adSettings.port">Port</label>
+                                    <input type="number" id="ad-port" class="form-control" value="389">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="ad-use-ssl">
+                                    <span data-i18n="adSettings.useSSL">Use SSL/TLS</span>
+                                </label>
+                            </div>
+                            <div class="form-group">
+                                <label for="ad-base-dn" data-i18n="adSettings.baseDN">Base DN</label>
+                                <input type="text" id="ad-base-dn" class="form-control" placeholder="dc=example,dc=com">
+                            </div>
+                            <div class="form-group">
+                                <label for="ad-user-dn-pattern" data-i18n="adSettings.userDNPattern">User DN Pattern</label>
+                                <input type="text" id="ad-user-dn-pattern" class="form-control" placeholder="{username}@example.com">
+                                <small style="color: var(--text-muted);" data-i18n="adSettings.userDNPatternHelper">
+                                    Use {username} as placeholder. Examples: {username}@domain.com, DOMAIN\{username}, cn={username},ou=users,dc=example,dc=com
+                                </small>
+                            </div>
+
+                            <h4 style="margin-top: 1.5rem; margin-bottom: 1rem;" data-i18n="adSettings.groupMapping">Group Mapping</h4>
+                            <div class="form-group">
+                                <label for="ad-admin-group" data-i18n="adSettings.adminGroup">Admin Group</label>
+                                <input type="text" id="ad-admin-group" class="form-control" placeholder="NetConfig-Admins">
+                                <small style="color: var(--text-muted);" data-i18n="adSettings.adminGroupHelper">
+                                    AD group name for users who should get Admin role
+                                </small>
+                            </div>
+                            <div class="form-group">
+                                <label for="ad-readonly-group" data-i18n="adSettings.readonlyGroup">Read-only Group</label>
+                                <input type="text" id="ad-readonly-group" class="form-control" placeholder="NetConfig-Users">
+                                <small style="color: var(--text-muted);" data-i18n="adSettings.readonlyGroupHelper">
+                                    AD group name for users who should get Read-only role
+                                </small>
+                            </div>
+
+                            <h4 style="margin-top: 1.5rem; margin-bottom: 1rem;" data-i18n="adSettings.bindCredentials">Bind Credentials (Optional)</h4>
+                            <p style="color: var(--text-muted); margin-bottom: 1rem;" data-i18n="adSettings.bindCredentialsHelper">
+                                Service account for searching users. Required for group mapping.
+                            </p>
+                            <div class="form-group">
+                                <label for="ad-bind-user" data-i18n="adSettings.bindUser">Bind User DN</label>
+                                <input type="text" id="ad-bind-user" class="form-control" placeholder="cn=service,ou=users,dc=example,dc=com">
+                            </div>
+                            <div class="form-group">
+                                <label for="ad-bind-password" data-i18n="adSettings.bindPassword">Bind Password</label>
+                                <input type="password" id="ad-bind-password" class="form-control">
+                            </div>
+
+                            <div style="margin-top: 1.5rem; display: flex; gap: 0.5rem;">
+                                <button type="button" class="btn btn-secondary" onclick="testADConnection()" data-i18n="adSettings.testConnection">Test Connection</button>
+                            </div>
+                            <div id="ad-test-result" style="margin-top: 1rem; display: none;"></div>
+                        </div>
+                        <div style="margin-top: 1.5rem;">
+                            <button type="submit" class="btn btn-primary" data-i18n="common.save">Save</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Backup Page (Admin Only) -->
+            <div id="page-backup" class="page-view" data-admin-only>
+                <div class="page-header">
+                    <h2 data-i18n="backup.title">Backup</h2>
+                </div>
+                <div class="card">
+                    <h3 data-i18n="backup.configBackup">Configuration Backup</h3>
+                    <p style="color: var(--text-muted); margin-bottom: 1rem;" data-i18n="backup.configBackupDesc">
+                        Download app configuration including authentication settings and device credentials (encrypted).
+                    </p>
+                    <button class="btn btn-primary" onclick="BackupAPI.downloadConfig()">
+                        &#128190; <span data-i18n="backup.downloadConfig">Download Config Backup</span>
+                    </button>
+                </div>
+                <div class="card" style="margin-top: 1rem;">
+                    <h3 data-i18n="backup.fullBackup">Full Data Backup</h3>
+                    <p style="color: var(--text-muted); margin-bottom: 1rem;" data-i18n="backup.fullBackupDesc">
+                        Download complete backup including all devices, configurations, groups, and settings.
+                    </p>
+                    <button class="btn btn-primary" onclick="BackupAPI.downloadData()">
+                        &#128190; <span data-i18n="backup.downloadFull">Download Full Backup</span>
+                    </button>
+                </div>
+                <div class="card" style="margin-top: 1rem;">
+                    <h3 data-i18n="backup.backupInfo">Backup Information</h3>
+                    <div id="backup-info">
+                        <p class="empty-state" data-i18n="common.loading">Loading...</p>
                     </div>
                 </div>
             </div>
@@ -546,39 +794,39 @@
     <div id="add-device-modal" class="modal-overlay">
         <div class="modal">
             <div class="modal-header">
-                <h3>Add Devices</h3>
+                <h3 data-i18n="devices.addDevicesModal.title">Add Devices</h3>
                 <button class="modal-close" onclick="closeModal('add-device-modal')">&times;</button>
             </div>
             <form id="add-device-form">
                 <div class="modal-body">
                     <div class="form-group">
-                        <label for="device-ips">IP Addresses</label>
+                        <label for="device-ips" data-i18n="devices.addDevicesModal.ipAddresses">IP Addresses</label>
                         <textarea name="ips" id="device-ips" class="form-control" rows="4"
-                                  placeholder="Enter IPs, ranges, or CIDR notation&#10;Examples: 192.168.1.1, 192.168.1.10-20, 192.168.2.0/24" required></textarea>
-                        <small style="color: var(--text-muted);">
+                                  data-i18n-placeholder="devices.addDevicesModal.ipPlaceholder" placeholder="Enter IPs, ranges, or CIDR notation&#10;Examples: 192.168.1.1, 192.168.1.10-20, 192.168.2.0/24" required></textarea>
+                        <small style="color: var(--text-muted);" data-i18n="devices.addDevicesModal.ipHelper">
                             Supports: single IPs, ranges (192.168.1.1-10), CIDR (192.168.1.0/24)
                         </small>
                     </div>
                     <div class="form-group">
-                        <label for="device-vendor">Vendor</label>
+                        <label for="device-vendor" data-i18n="devices.vendor">Vendor</label>
                         <select name="vendor" id="device-vendor" class="form-control">
-                            <option value="">Auto-detect</option>
-                            <option value="huawei">Huawei</option>
-                            <option value="hp">HP</option>
-                            <option value="aruba">Aruba</option>
-                            <option value="cisco">Cisco (IOS)</option>
+                            <option value="" data-i18n="common.autoDetect">Auto-detect</option>
+                            <option value="huawei" data-i18n="vendors.huawei">Huawei</option>
+                            <option value="hp" data-i18n="vendors.hp">HP</option>
+                            <option value="aruba" data-i18n="vendors.aruba">Aruba</option>
+                            <option value="cisco" data-i18n="vendors.cisco">Cisco (IOS)</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label for="device-credential">Credential</label>
+                        <label for="device-credential" data-i18n="common.credential">Credential</label>
                         <select name="credential_id" id="device-credential" class="form-control credential-select">
-                            <option value="">Use Default</option>
+                            <option value="" data-i18n="common.useDefault">Use Default</option>
                         </select>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" onclick="closeModal('add-device-modal')">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Add Devices</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('add-device-modal')" data-i18n="common.cancel">Cancel</button>
+                    <button type="submit" class="btn btn-primary" data-i18n="devices.addDevices">Add Devices</button>
                 </div>
             </form>
         </div>
@@ -588,34 +836,34 @@
     <div id="add-credential-modal" class="modal-overlay">
         <div class="modal">
             <div class="modal-header">
-                <h3>Add Credential</h3>
+                <h3 data-i18n="credentials.addCredential">Add Credential</h3>
                 <button class="modal-close" onclick="closeModal('add-credential-modal')">&times;</button>
             </div>
             <form id="add-credential-form">
                 <div class="modal-body">
                     <div class="form-group">
-                        <label for="cred-username">Username</label>
+                        <label for="cred-username" data-i18n="credentials.username">Username</label>
                         <input type="text" name="username" id="cred-username" class="form-control" required>
                     </div>
                     <div class="form-group">
-                        <label for="cred-password">Password</label>
+                        <label for="cred-password" data-i18n="credentials.password">Password</label>
                         <input type="password" name="password" id="cred-password" class="form-control" required>
                     </div>
                     <div class="form-group">
-                        <label for="cred-description">Description (optional)</label>
+                        <label for="cred-description" data-i18n="credentials.descriptionOptional">Description (optional)</label>
                         <input type="text" name="description" id="cred-description" class="form-control"
-                               placeholder="e.g., Admin account for switches">
+                               data-i18n-placeholder="credentials.descriptionPlaceholder" placeholder="e.g., Admin account for switches">
                     </div>
                     <div class="form-group">
                         <label>
                             <input type="checkbox" name="is_default" id="cred-default">
-                            Set as default credential
+                            <span data-i18n="credentials.setAsDefault">Set as default credential</span>
                         </label>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" onclick="closeModal('add-credential-modal')">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Add Credential</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('add-credential-modal')" data-i18n="common.cancel">Cancel</button>
+                    <button type="submit" class="btn btn-primary" data-i18n="credentials.addCredential">Add Credential</button>
                 </div>
             </form>
         </div>
@@ -634,89 +882,149 @@
         </div>
     </div>
 
-    <!-- Collect Configs Modal -->
-    <div id="collect-configs-modal" class="modal-overlay">
-        <div class="modal">
-            <div class="modal-header">
-                <h3>Collect Configurations</h3>
-                <button class="modal-close" onclick="closeModal('collect-configs-modal')">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label for="collect-modal-credential">Credential</label>
-                    <select id="collect-modal-credential" class="form-control credential-select">
-                        <option value="">Use Default</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Select devices to collect from:</label>
-                    <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem; margin-bottom: 0.5rem;">
-                        <select id="collect-modal-group" class="form-control" style="flex: 1;" onchange="selectCollectModalGroup(this.value)">
-                            <option value="">-- Select Group --</option>
-                        </select>
-                        <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllCollectDevices(true)">All</button>
-                        <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllCollectDevices(false)">None</button>
-                    </div>
-                    <div style="margin-bottom: 0.5rem;">
-                        <input type="text" id="collect-modal-filter" class="form-control" placeholder="Filter by hostname, IP, or vendor..." oninput="filterCollectModalDevices(this.value)">
-                    </div>
-                    <div id="collect-modal-device-list" style="max-height: 250px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 4px; padding: 0.5rem;">
-                        <p class="empty-state">Loading devices...</p>
-                    </div>
-                    <div style="margin-top: 0.5rem;">
-                        <span id="collect-modal-selected-count" style="color: var(--text-muted);">0 selected</span>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" onclick="closeModal('collect-configs-modal')">Cancel</button>
-                <button type="button" class="btn btn-primary" id="collect-modal-btn" onclick="startCollectFromModal()">
-                    Start Collection
-                </button>
-            </div>
-        </div>
-    </div>
-
     <!-- Create/Edit Group Modal -->
     <div id="group-modal" class="modal-overlay">
         <div class="modal" style="max-width: 600px;">
             <div class="modal-header">
-                <h3 id="group-modal-title">Create Group</h3>
+                <h3 id="group-modal-title" data-i18n="groups.createGroup">Create Group</h3>
                 <button class="modal-close" onclick="closeModal('group-modal')">&times;</button>
             </div>
             <form id="group-form">
                 <input type="hidden" id="group-id" value="">
                 <div class="modal-body">
                     <div class="form-group">
-                        <label for="group-name">Group Name</label>
-                        <input type="text" id="group-name" class="form-control" placeholder="e.g., Core Switches" required>
+                        <label for="group-name" data-i18n="groups.groupName">Group Name</label>
+                        <input type="text" id="group-name" class="form-control" data-i18n-placeholder="groups.groupNamePlaceholder" placeholder="e.g., Core Switches" required>
                     </div>
                     <div class="form-group">
-                        <label for="group-description">Description</label>
-                        <textarea id="group-description" class="form-control" rows="2" placeholder="Optional description for this group"></textarea>
+                        <label for="group-description" data-i18n="groups.description">Description</label>
+                        <textarea id="group-description" class="form-control" rows="2" data-i18n-placeholder="groups.descriptionPlaceholder" placeholder="Optional description for this group"></textarea>
                     </div>
                     <div class="form-group">
-                        <label for="group-color">Color</label>
+                        <label for="group-color" data-i18n="groups.color">Color</label>
                         <div class="color-picker">
                             <input type="color" id="group-color" value="#3b82f6">
-                            <span class="color-preview" id="color-preview">Blue</span>
+                            <span class="color-preview" id="color-preview" data-i18n="groups.colors.blue">Blue</span>
                         </div>
                     </div>
                     <div class="form-group">
-                        <label>Select Devices</label>
+                        <label data-i18n="groups.selectDevices">Select Devices</label>
                         <div id="group-device-selection" class="device-selection-container">
-                            <p class="empty-state" style="padding: 1rem;">Loading devices...</p>
+                            <p class="empty-state" style="padding: 1rem;" data-i18n="common.loading">Loading devices...</p>
                         </div>
                         <div style="margin-top: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
-                            <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllGroupDevices(true)">Select All</button>
-                            <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllGroupDevices(false)">Select None</button>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllGroupDevices(true)" data-i18n="groups.selectAll">Select All</button>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllGroupDevices(false)" data-i18n="groups.selectNone">Select None</button>
                             <span id="group-device-count" style="margin-left: auto; color: var(--text-muted);">0 selected</span>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" onclick="closeModal('group-modal')">Cancel</button>
-                    <button type="submit" class="btn btn-primary" id="group-submit-btn">Create Group</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('group-modal')" data-i18n="common.cancel">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="group-submit-btn" data-i18n="groups.createGroup">Create Group</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add User Modal -->
+    <div id="add-user-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 data-i18n="users.addUser">Add User</h3>
+                <button class="modal-close" onclick="closeModal('add-user-modal')">&times;</button>
+            </div>
+            <form id="add-user-form">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="user-username" data-i18n="users.username">Username</label>
+                        <input type="text" id="user-username" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="user-password" data-i18n="users.password">Password</label>
+                        <input type="password" id="user-password" class="form-control" required minlength="8">
+                    </div>
+                    <div class="form-group">
+                        <label for="user-email" data-i18n="users.email">Email (optional)</label>
+                        <input type="email" id="user-email" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label for="user-role" data-i18n="users.role">Role</label>
+                        <select id="user-role" class="form-control">
+                            <option value="readonly" data-i18n="users.readonly">Read-only</option>
+                            <option value="admin" data-i18n="users.admin">Admin</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('add-user-modal')" data-i18n="common.cancel">Cancel</button>
+                    <button type="submit" class="btn btn-primary" data-i18n="users.addUser">Add User</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div id="edit-user-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 data-i18n="users.editUser">Edit User</h3>
+                <button class="modal-close" onclick="closeModal('edit-user-modal')">&times;</button>
+            </div>
+            <form id="edit-user-form">
+                <input type="hidden" id="edit-user-id">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="edit-user-username" data-i18n="users.username">Username</label>
+                        <input type="text" id="edit-user-username" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-user-email" data-i18n="users.email">Email (optional)</label>
+                        <input type="email" id="edit-user-email" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-user-role" data-i18n="users.role">Role</label>
+                        <select id="edit-user-role" class="form-control">
+                            <option value="readonly" data-i18n="users.readonly">Read-only</option>
+                            <option value="admin" data-i18n="users.admin">Admin</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('edit-user-modal')" data-i18n="common.cancel">Cancel</button>
+                    <button type="submit" class="btn btn-primary" data-i18n="common.save">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Change User Password Modal -->
+    <div id="change-password-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 data-i18n="users.changePassword">Change Password</h3>
+                <button class="modal-close" onclick="closeModal('change-password-modal')">&times;</button>
+            </div>
+            <form id="change-password-form">
+                <input type="hidden" id="change-password-user-id">
+                <div class="modal-body">
+                    <div class="form-group" id="current-password-group">
+                        <label for="change-current-password" data-i18n="users.currentPassword">Current Password</label>
+                        <input type="password" id="change-current-password" class="form-control">
+                        <small style="color: var(--text-muted);" data-i18n="users.currentPasswordHelper">Required when changing your own password</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="change-new-password" data-i18n="users.newPassword">New Password</label>
+                        <input type="password" id="change-new-password" class="form-control" required minlength="8">
+                    </div>
+                    <div class="form-group">
+                        <label for="change-confirm-password" data-i18n="users.confirmPassword">Confirm Password</label>
+                        <input type="password" id="change-confirm-password" class="form-control" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('change-password-modal')" data-i18n="common.cancel">Cancel</button>
+                    <button type="submit" class="btn btn-primary" data-i18n="users.changePassword">Change Password</button>
                 </div>
             </form>
         </div>
@@ -730,6 +1038,8 @@
     <script src="/static/js/websocket.js"></script>
     <script src="/static/js/selection.js"></script>
     <script src="/static/js/context-menu.js"></script>
+    <script src="/static/js/i18n.js"></script>
+    <script src="/static/js/auth.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>
