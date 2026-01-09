@@ -74,6 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'collect':
                 await loadCredentials();
                 await loadDevices();
+                initCollectPageDeviceList();
                 break;
             case 'compare':
                 await loadDevices();
@@ -394,9 +395,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ==================== LOG COLLECTION ====================
 
-    function initLogsDeviceList() {
+    async function initLogsDeviceList() {
         const container = document.getElementById('logs-device-list');
         if (!container) return;
+
+        // Populate group select
+        await populateGroupSelect('logs-group');
 
         if (devices.length === 0) {
             container.innerHTML = '<p class="empty-state" style="padding: 1rem;">No devices available. Add devices first.</p>';
@@ -404,7 +408,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         container.innerHTML = devices.map(d => `
-            <div style="padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);">
+            <div style="padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);" data-device-filter="${d.hostname || ''} ${d.ip} ${d.vendor || ''}">
                 <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
                     <input type="checkbox" class="logs-device-checkbox" value="${d.ip}" onchange="updateLogsSelectedCount()">
                     <span style="flex: 1;">${d.hostname || d.ip}</span>
@@ -417,12 +421,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
         updateLogsSelectedCount();
 
+        // Clear filter input
+        const filterInput = document.getElementById('logs-filter');
+        if (filterInput) filterInput.value = '';
+
         // Hide previous results
         const resultsContainer = document.getElementById('logs-results');
         if (resultsContainer) resultsContainer.style.display = 'none';
         const progressContainer = document.getElementById('logs-device-progress');
         if (progressContainer) progressContainer.style.display = 'none';
     }
+
+    window.filterLogsDevices = function(filterText) {
+        filterDeviceList('logs-device-list', filterText);
+    };
+
+    window.selectLogsGroup = function(groupId) {
+        if (!groupId) return;
+        selectDevicesByGroup('logs-group', 'logs-device-checkbox', updateLogsSelectedCount);
+    };
 
     window.updateLogsSelectedCount = function() {
         const checkboxes = document.querySelectorAll('.logs-device-checkbox:checked');
@@ -431,8 +448,18 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.selectAllLogDevices = function(selectAll) {
-        const checkboxes = document.querySelectorAll('.logs-device-checkbox');
-        checkboxes.forEach(cb => cb.checked = selectAll);
+        // Only affect visible (non-filtered) checkboxes
+        const container = document.getElementById('logs-device-list');
+        const items = container.querySelectorAll('[data-device-filter]');
+        items.forEach(item => {
+            if (item.style.display !== 'none') {
+                const cb = item.querySelector('.logs-device-checkbox');
+                if (cb) cb.checked = selectAll;
+            }
+        });
+        // Reset group dropdown
+        const groupSelect = document.getElementById('logs-group');
+        if (groupSelect) groupSelect.value = '';
         updateLogsSelectedCount();
     };
 
@@ -588,6 +615,214 @@ document.addEventListener('DOMContentLoaded', () => {
             titleSpan.textContent = `${logData.hostname} (${logData.device_ip}) - Logs`;
             contentPre.textContent = logData.logs || 'No logs available';
             openModal('config-viewer-modal');
+        }
+    }
+
+    // ==================== GROUP SELECT & FILTER HELPERS ====================
+
+    async function populateGroupSelect(selectId) {
+        const select = document.getElementById(selectId);
+        if (!select) return;
+
+        try {
+            const response = await API.getGroups();
+            const groupList = response.groups || [];
+
+            select.innerHTML = '<option value="">-- Select Group --</option>' +
+                groupList.map(g => `<option value="${g.id}" data-devices='${JSON.stringify(g.device_ips)}'>${escapeHtml(g.name)} (${g.device_ips.length})</option>`).join('');
+        } catch (error) {
+            console.error('Failed to load groups:', error);
+            select.innerHTML = '<option value="">-- No Groups --</option>';
+        }
+    }
+
+    function selectDevicesByGroup(groupSelectId, checkboxClass, updateCountFn) {
+        const select = document.getElementById(groupSelectId);
+        if (!select) return;
+
+        const selectedOption = select.options[select.selectedIndex];
+        if (!selectedOption || !selectedOption.value) return;
+
+        const deviceIps = JSON.parse(selectedOption.dataset.devices || '[]');
+        const checkboxes = document.querySelectorAll(`.${checkboxClass}`);
+
+        // Deselect all first, then select only group devices
+        checkboxes.forEach(cb => {
+            cb.checked = deviceIps.includes(cb.value);
+        });
+
+        if (updateCountFn) updateCountFn();
+    }
+
+    function filterDeviceList(containerId, filterText) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        const items = container.querySelectorAll('[data-device-filter]');
+        const search = filterText.toLowerCase().trim();
+
+        items.forEach(item => {
+            if (!search) {
+                item.style.display = '';
+                return;
+            }
+
+            const filterData = item.dataset.deviceFilter.toLowerCase();
+            item.style.display = filterData.includes(search) ? '' : 'none';
+        });
+    }
+
+    // ==================== CONFIGURATIONS COLLECTION PAGE ====================
+
+    async function initCollectPageDeviceList() {
+        const container = document.getElementById('collect-page-device-list');
+        if (!container) return;
+
+        // Populate group select
+        await populateGroupSelect('collect-page-group');
+
+        if (!devices || devices.length === 0) {
+            container.innerHTML = '<p class="empty-state">No devices available. Add devices first.</p>';
+            updateCollectPageSelectedCount();
+            return;
+        }
+
+        container.innerHTML = devices.map(d => `
+            <div style="padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);" data-device-filter="${d.hostname || ''} ${d.ip} ${d.vendor || ''}">
+                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                    <input type="checkbox" class="collect-page-device-checkbox" value="${d.ip}" checked onchange="updateCollectPageSelectedCount()">
+                    <span style="flex: 1;">${d.hostname || d.ip}</span>
+                    <span style="color: var(--text-muted); font-size: 0.85em;">${d.ip}</span>
+                    <span class="badge ${getStatusBadgeClass(d.status)}" style="margin-left: 0.5rem;">${d.status || 'unknown'}</span>
+                    <span class="badge badge-info" style="margin-left: 0.25rem;">${d.vendor}</span>
+                </label>
+            </div>
+        `).join('');
+
+        updateCollectPageSelectedCount();
+
+        // Clear filter input
+        const filterInput = document.getElementById('collect-page-filter');
+        if (filterInput) filterInput.value = '';
+
+        // Hide progress containers
+        const progressContainer = document.getElementById('collect-page-device-progress');
+        if (progressContainer) progressContainer.style.display = 'none';
+    }
+
+    window.filterCollectPageDevices = function(filterText) {
+        filterDeviceList('collect-page-device-list', filterText);
+    };
+
+    window.selectCollectPageGroup = function(groupId) {
+        if (!groupId) return;
+        selectDevicesByGroup('collect-page-group', 'collect-page-device-checkbox', updateCollectPageSelectedCount);
+    };
+
+    window.selectAllCollectPageDevices = function(selectAll) {
+        // Only affect visible (non-filtered) checkboxes
+        const container = document.getElementById('collect-page-device-list');
+        const items = container.querySelectorAll('[data-device-filter]');
+        items.forEach(item => {
+            if (item.style.display !== 'none') {
+                const cb = item.querySelector('.collect-page-device-checkbox');
+                if (cb) cb.checked = selectAll;
+            }
+        });
+        // Reset group dropdown
+        const groupSelect = document.getElementById('collect-page-group');
+        if (groupSelect) groupSelect.value = '';
+        updateCollectPageSelectedCount();
+    };
+
+    window.updateCollectPageSelectedCount = function() {
+        const checkboxes = document.querySelectorAll('.collect-page-device-checkbox:checked');
+        const countSpan = document.getElementById('collect-page-selected-count');
+        if (countSpan) countSpan.textContent = `${checkboxes.length} selected`;
+    };
+
+    window.startCollectFromPage = async function() {
+        const credentialId = document.getElementById('collect-page-credential').value || null;
+        const checkboxes = document.querySelectorAll('.collect-page-device-checkbox:checked');
+        const deviceIps = Array.from(checkboxes).map(cb => cb.value);
+
+        if (deviceIps.length === 0) {
+            showToast('Please select at least one device', 'warning');
+            return;
+        }
+
+        const button = document.getElementById('collect-page-btn');
+        setButtonLoading(button, true, 'Collecting...');
+
+        // Hide previous progress
+        const progressContainer = document.getElementById('collect-page-device-progress');
+        if (progressContainer) progressContainer.style.display = 'none';
+
+        try {
+            await API.startCollection(deviceIps, credentialId);
+            showToast('Collection started', 'info');
+            showProgress('collect');
+
+            // Initialize device progress list
+            initCollectPageDeviceProgress(deviceIps);
+        } catch (error) {
+            showToast(error.message, 'error');
+            setButtonLoading(button, false);
+        }
+    };
+
+    function initCollectPageDeviceProgress(deviceIps) {
+        const container = document.getElementById('collect-page-device-progress');
+        const listContainer = document.getElementById('collect-page-device-status');
+
+        if (!container || !listContainer) return;
+
+        container.style.display = 'block';
+
+        listContainer.innerHTML = deviceIps.map(ip => {
+            const device = devices.find(d => d.ip === ip);
+            const hostname = device ? (device.hostname || ip) : ip;
+            const vendor = device ? device.vendor : 'unknown';
+            return `
+                <div class="collect-page-device-item" id="collect-page-device-${ip.replace(/\./g, '-')}"
+                     style="display: flex; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);">
+                    <span class="collect-page-device-status" style="width: 24px; text-align: center; margin-right: 0.5rem;">
+                        <span style="color: var(--text-muted);">&#9679;</span>
+                    </span>
+                    <span style="flex: 1;">${hostname}</span>
+                    <span style="color: var(--text-muted); font-size: 0.85em;">${ip}</span>
+                    <span class="badge badge-info" style="margin-left: 0.5rem;">${vendor}</span>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function updateCollectPageDeviceStatus(ip, status) {
+        const itemId = `collect-page-device-${ip.replace(/\./g, '-')}`;
+        const item = document.getElementById(itemId);
+        if (!item) return;
+
+        const statusSpan = item.querySelector('.collect-page-device-status');
+        if (!statusSpan) return;
+
+        if (status === 'in_progress') {
+            statusSpan.innerHTML = '<span class="spinner" style="width: 14px; height: 14px;"></span>';
+            item.style.backgroundColor = 'var(--bg-color)';
+        } else if (status === 'completed') {
+            statusSpan.innerHTML = '<span style="color: var(--success-color);">&#10003;</span>';
+            item.style.backgroundColor = '';
+        } else if (status === 'failed') {
+            statusSpan.innerHTML = '<span style="color: var(--danger-color);">&#10007;</span>';
+            item.style.backgroundColor = '';
+        }
+    }
+
+    function hideCollectPageDeviceProgress() {
+        const container = document.getElementById('collect-page-device-progress');
+        if (container) {
+            setTimeout(() => {
+                container.style.display = 'none';
+            }, 3000);
         }
     }
 
@@ -1052,9 +1287,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let macSearchDevices = [];
 
     // Initialize MAC search device selection list
-    function initMacSearchDeviceList() {
+    async function initMacSearchDeviceList() {
         const container = document.getElementById('mac-search-device-list');
         if (!container) return;
+
+        // Populate group select
+        await populateGroupSelect('mac-search-group');
+
+        // Clear filter input
+        const filterInput = document.getElementById('mac-search-filter');
+        if (filterInput) filterInput.value = '';
 
         if (!devices || devices.length === 0) {
             container.innerHTML = '<p class="empty-state" style="padding: 0.5rem;">No devices available. Add devices first.</p>';
@@ -1063,7 +1305,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         container.innerHTML = devices.map(d => `
-            <div style="display: flex; align-items: center; padding: 0.25rem 0;">
+            <div style="display: flex; align-items: center; padding: 0.25rem 0;" data-device-filter="${d.hostname || ''} ${d.ip} ${d.vendor || ''}">
                 <input type="checkbox" class="mac-search-device-checkbox"
                        id="mac-device-${d.ip}" value="${d.ip}" checked
                        onchange="updateMacSearchSelectedCount()">
@@ -1080,9 +1322,28 @@ document.addEventListener('DOMContentLoaded', () => {
         updateMacSearchSelectedCount();
     }
 
+    window.filterMacSearchDevices = function(filterText) {
+        filterDeviceList('mac-search-device-list', filterText);
+    };
+
+    window.selectMacSearchGroup = function(groupId) {
+        if (!groupId) return;
+        selectDevicesByGroup('mac-search-group', 'mac-search-device-checkbox', updateMacSearchSelectedCount);
+    };
+
     window.selectAllMacSearchDevices = function(select) {
-        const checkboxes = document.querySelectorAll('.mac-search-device-checkbox');
-        checkboxes.forEach(cb => cb.checked = select);
+        // Only affect visible (non-filtered) checkboxes
+        const container = document.getElementById('mac-search-device-list');
+        const items = container.querySelectorAll('[data-device-filter]');
+        items.forEach(item => {
+            if (item.style.display !== 'none') {
+                const cb = item.querySelector('.mac-search-device-checkbox');
+                if (cb) cb.checked = select;
+            }
+        });
+        // Reset group dropdown
+        const groupSelect = document.getElementById('mac-search-group');
+        if (groupSelect) groupSelect.value = '';
         updateMacSearchSelectedCount();
     };
 
@@ -1302,20 +1563,28 @@ document.addEventListener('DOMContentLoaded', () => {
     // Open collect configs modal
     window.openCollectConfigsModal = async function() {
         await loadCredentials();
-        initCollectModalDeviceList();
+        await initCollectModalDeviceList();
         openModal('collect-configs-modal');
     };
 
     // Initialize device list in collect modal
-    function initCollectModalDeviceList() {
+    async function initCollectModalDeviceList() {
         const container = document.getElementById('collect-modal-device-list');
+
+        // Populate group select
+        await populateGroupSelect('collect-modal-group');
+
+        // Clear filter input
+        const filterInput = document.getElementById('collect-modal-filter');
+        if (filterInput) filterInput.value = '';
+
         if (!devices || devices.length === 0) {
             container.innerHTML = '<p class="empty-state">No devices available</p>';
             return;
         }
 
         container.innerHTML = devices.map(d => `
-            <div style="display: flex; align-items: center; padding: 0.25rem 0;">
+            <div style="display: flex; align-items: center; padding: 0.25rem 0;" data-device-filter="${d.hostname || ''} ${d.ip} ${d.vendor || ''}">
                 <input type="checkbox" class="collect-modal-device-checkbox"
                        id="collect-device-${d.ip}" value="${d.ip}" checked
                        onchange="updateCollectModalSelectedCount()">
@@ -1332,9 +1601,28 @@ document.addEventListener('DOMContentLoaded', () => {
         updateCollectModalSelectedCount();
     }
 
+    window.filterCollectModalDevices = function(filterText) {
+        filterDeviceList('collect-modal-device-list', filterText);
+    };
+
+    window.selectCollectModalGroup = function(groupId) {
+        if (!groupId) return;
+        selectDevicesByGroup('collect-modal-group', 'collect-modal-device-checkbox', updateCollectModalSelectedCount);
+    };
+
     window.selectAllCollectDevices = function(select) {
-        const checkboxes = document.querySelectorAll('.collect-modal-device-checkbox');
-        checkboxes.forEach(cb => cb.checked = select);
+        // Only affect visible (non-filtered) checkboxes
+        const container = document.getElementById('collect-modal-device-list');
+        const items = container.querySelectorAll('[data-device-filter]');
+        items.forEach(item => {
+            if (item.style.display !== 'none') {
+                const cb = item.querySelector('.collect-modal-device-checkbox');
+                if (cb) cb.checked = select;
+            }
+        });
+        // Reset group dropdown
+        const groupSelect = document.getElementById('collect-modal-group');
+        if (groupSelect) groupSelect.value = '';
         updateCollectModalSelectedCount();
     };
 
@@ -1493,9 +1781,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.phase === 'starting' && data.device_ips) {
                 initCollectDeviceProgress(data.device_ips);
             }
-            // Update per-device status
+            // Update per-device status on both pages
             if (data.device_ip && data.status) {
                 updateCollectDeviceStatus(data.device_ip, data.status);
+                updateCollectPageDeviceStatus(data.device_ip, data.status);
             }
         } else if (data.task_type === 'mac_search') {
             updateProgressContainer('mac_search-progress', data);
@@ -1550,8 +1839,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 setButtonLoading(collectModalBtn, false);
                 const collectFormBtn = document.querySelector('#collect-form button[type="submit"]');
                 setButtonLoading(collectFormBtn, false);
+                const collectPageBtn = document.getElementById('collect-page-btn');
+                setButtonLoading(collectPageBtn, false);
                 // Hide device progress after delay
                 hideCollectDeviceProgress();
+                hideCollectPageDeviceProgress();
                 await loadDevices();
                 break;
             case 'status_check':
@@ -1621,6 +1913,8 @@ document.addEventListener('DOMContentLoaded', () => {
             setButtonLoading(collectModalBtn, false);
             const collectFormBtn = document.querySelector('#collect-form button[type="submit"]');
             setButtonLoading(collectFormBtn, false);
+            const collectPageBtn = document.getElementById('collect-page-btn');
+            setButtonLoading(collectPageBtn, false);
         } else if (data.task_type === 'status_check') {
             const statusBtn = document.querySelector('button[onclick="checkDevicesStatus()"]');
             setButtonLoading(statusBtn, false);
