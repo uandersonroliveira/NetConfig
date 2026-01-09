@@ -633,7 +633,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         tbody.innerHTML = devices.map(device => `
-            <tr>
+            <tr data-device-ip="${device.ip}" data-device-hostname="${device.hostname || ''}">
                 <td>
                     <input type="checkbox" class="device-checkbox" value="${device.ip}" onchange="updateBulkDeleteButton()">
                 </td>
@@ -658,6 +658,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 </td>
             </tr>
         `).join('');
+
+        // Initialize or refresh SelectionManager
+        initDeviceSelection();
     }
 
     function getStatusBadgeClass(status) {
@@ -1629,6 +1632,407 @@ document.addEventListener('DOMContentLoaded', () => {
             toast.remove();
         }, 5000);
     }
+
+    // =============================================
+    // Device Selection and Context Menu
+    // =============================================
+
+    let deviceSelectionManager = null;
+    let deviceContextMenu = null;
+
+    function initDeviceSelection() {
+        const tbody = document.getElementById('devices-tbody');
+        if (!tbody) return;
+
+        // Destroy existing manager if any
+        if (deviceSelectionManager) {
+            deviceSelectionManager.destroy();
+        }
+
+        deviceSelectionManager = new SelectionManager({
+            container: tbody,
+            itemSelector: 'tr[data-device-ip]',
+            checkboxSelector: '.device-checkbox',
+            onSelectionChange: (selectedValues, count) => {
+                updateBulkDeleteButtonFromSelection(count);
+            },
+            enableMarquee: true,
+            enableKeyboardNav: true
+        });
+
+        // Bind context menu to tbody
+        tbody.addEventListener('contextmenu', handleDeviceContextMenu);
+    }
+
+    function handleDeviceContextMenu(e) {
+        // Only handle if clicking on a device row
+        const row = e.target.closest('tr[data-device-ip]');
+        if (!row) return;
+
+        e.preventDefault();
+
+        // Get selected devices
+        let selectedDevices = [];
+        if (deviceSelectionManager) {
+            selectedDevices = deviceSelectionManager.getSelectedValues();
+        }
+
+        // If right-clicked row is not in selection, select only that row
+        const clickedIp = row.dataset.deviceIp;
+        if (!selectedDevices.includes(clickedIp)) {
+            if (deviceSelectionManager) {
+                deviceSelectionManager.deselectAll();
+                deviceSelectionManager.selectItem(row);
+            }
+            selectedDevices = [clickedIp];
+        }
+
+        // Show context menu
+        if (deviceContextMenu && selectedDevices.length > 0) {
+            deviceContextMenu.show(e.clientX, e.clientY, selectedDevices);
+        }
+    }
+
+    function updateBulkDeleteButtonFromSelection(count) {
+        const btn = document.getElementById('bulk-delete-btn');
+        const countSpan = document.getElementById('selected-count');
+        if (btn && countSpan) {
+            countSpan.textContent = count;
+            btn.style.display = count > 0 ? 'inline-flex' : 'none';
+        }
+    }
+
+    // Initialize context menu
+    function initContextMenu() {
+        deviceContextMenu = new ContextMenu({
+            onAction: handleContextMenuAction
+        });
+    }
+
+    async function handleContextMenuAction(action, data) {
+        const devices = data.devices || [];
+        const groupId = data.groupId;
+
+        switch (action) {
+            case 'add-to-new-group':
+                // Open create group modal with devices pre-selected
+                openCreateGroupModal(devices);
+                break;
+
+            case 'add-to-group':
+                if (groupId && devices.length > 0) {
+                    try {
+                        await API.addDevicesToGroup(groupId, devices);
+                        showToast(`Added ${devices.length} device(s) to group`, 'success');
+                    } catch (error) {
+                        showToast('Failed to add devices to group: ' + error.message, 'error');
+                    }
+                }
+                break;
+
+            case 'remove-from-groups':
+                if (devices.length > 0) {
+                    try {
+                        // Get all groups and remove devices from each
+                        const response = await API.getGroups();
+                        const groups = response.groups || [];
+                        for (const group of groups) {
+                            const toRemove = devices.filter(ip => group.device_ips.includes(ip));
+                            if (toRemove.length > 0) {
+                                await API.removeDevicesFromGroup(group.id, toRemove);
+                            }
+                        }
+                        showToast(`Removed ${devices.length} device(s) from all groups`, 'success');
+                        // Refresh groups if on groups tab
+                        loadGroups();
+                    } catch (error) {
+                        showToast('Failed to remove devices from groups: ' + error.message, 'error');
+                    }
+                }
+                break;
+        }
+    }
+
+    // =============================================
+    // Device Page Tabs
+    // =============================================
+
+    function initDevicePageTabs() {
+        const tabsContainer = document.getElementById('devices-tabs');
+        if (!tabsContainer) return;
+
+        tabsContainer.addEventListener('click', (e) => {
+            const btn = e.target.closest('.tab-btn');
+            if (!btn) return;
+
+            const tabId = btn.dataset.tab;
+
+            // Update active states
+            tabsContainer.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            // Show corresponding content
+            const devicePage = document.getElementById('page-devices');
+            devicePage.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.toggle('active', content.id === tabId);
+            });
+
+            // Load groups when switching to groups tab
+            if (tabId === 'devices-groups-tab') {
+                loadGroups();
+            }
+        });
+    }
+
+    // =============================================
+    // Groups Management
+    // =============================================
+
+    let groups = [];
+
+    async function loadGroups() {
+        try {
+            const response = await API.getGroups();
+            groups = response.groups || [];
+            renderGroupsList();
+        } catch (error) {
+            showToast('Failed to load groups', 'error');
+        }
+    }
+
+    function renderGroupsList() {
+        const container = document.getElementById('groups-list');
+        if (!container) return;
+
+        if (groups.length === 0) {
+            container.innerHTML = `
+                <div class="groups-empty">
+                    <div class="groups-empty-icon">&#128193;</div>
+                    <p>No groups created yet</p>
+                    <button class="btn btn-primary" onclick="openCreateGroupModal()">Create Your First Group</button>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = groups.map(group => `
+            <div class="group-card" data-group-id="${group.id}">
+                <div class="group-card-header">
+                    <span class="group-color-dot" style="background: ${group.color || '#6b7280'}"></span>
+                    <h4 class="group-name">${escapeHtml(group.name)}</h4>
+                    <div class="group-actions">
+                        <button class="btn btn-sm btn-secondary" onclick="openEditGroupModal('${group.id}')">Edit</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteGroup('${group.id}')">Delete</button>
+                    </div>
+                </div>
+                <p class="group-description">${escapeHtml(group.description) || 'No description'}</p>
+                <div class="group-stats">
+                    <span class="badge badge-info">${group.device_count} device${group.device_count !== 1 ? 's' : ''}</span>
+                </div>
+                <div class="group-devices-preview">
+                    ${group.device_ips.slice(0, 5).map(ip => `<span class="device-chip">${ip}</span>`).join('')}
+                    ${group.device_ips.length > 5 ? `<span class="device-chip-more">+${group.device_ips.length - 5} more</span>` : ''}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    window.openCreateGroupModal = function(preSelectedDevices = []) {
+        // Reset form
+        document.getElementById('group-id').value = '';
+        document.getElementById('group-name').value = '';
+        document.getElementById('group-description').value = '';
+        document.getElementById('group-color').value = '#3b82f6';
+        document.getElementById('group-modal-title').textContent = 'Create Group';
+        document.getElementById('group-submit-btn').textContent = 'Create Group';
+
+        // Render device selection
+        renderGroupDeviceSelection(preSelectedDevices);
+
+        // Update color preview
+        updateColorPreview();
+
+        document.getElementById('group-modal').classList.add('active');
+    };
+
+    window.openEditGroupModal = async function(groupId) {
+        try {
+            const response = await API.getGroup(groupId);
+            const group = response.group;
+
+            document.getElementById('group-id').value = group.id;
+            document.getElementById('group-name').value = group.name;
+            document.getElementById('group-description').value = group.description || '';
+            document.getElementById('group-color').value = group.color || '#3b82f6';
+            document.getElementById('group-modal-title').textContent = 'Edit Group';
+            document.getElementById('group-submit-btn').textContent = 'Save Changes';
+
+            // Render device selection with pre-selected devices
+            renderGroupDeviceSelection(group.device_ips);
+
+            // Update color preview
+            updateColorPreview();
+
+            document.getElementById('group-modal').classList.add('active');
+        } catch (error) {
+            showToast('Failed to load group: ' + error.message, 'error');
+        }
+    };
+
+    function renderGroupDeviceSelection(selectedIps = []) {
+        const container = document.getElementById('group-device-selection');
+        const countSpan = document.getElementById('group-device-count');
+
+        if (devices.length === 0) {
+            container.innerHTML = '<p class="empty-state">No devices available</p>';
+            countSpan.textContent = '0 selected';
+            return;
+        }
+
+        container.innerHTML = devices.map(device => {
+            const isSelected = selectedIps.includes(device.ip);
+            return `
+                <div class="device-selection-item ${isSelected ? 'selected' : ''}" data-device-ip="${device.ip}">
+                    <input type="checkbox" class="group-device-checkbox" value="${device.ip}" ${isSelected ? 'checked' : ''}>
+                    <div class="device-selection-info">
+                        <span class="device-selection-ip">${device.ip}</span>
+                        <span class="device-selection-hostname">${device.hostname || ''}</span>
+                    </div>
+                    <span class="badge badge-info">${device.vendor || 'unknown'}</span>
+                </div>
+            `;
+        }).join('');
+
+        // Bind click handlers
+        container.querySelectorAll('.device-selection-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                if (e.target.type === 'checkbox') return;
+                const checkbox = item.querySelector('input[type="checkbox"]');
+                checkbox.checked = !checkbox.checked;
+                item.classList.toggle('selected', checkbox.checked);
+                updateGroupDeviceCount();
+            });
+        });
+
+        container.querySelectorAll('.group-device-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+                e.target.closest('.device-selection-item').classList.toggle('selected', e.target.checked);
+                updateGroupDeviceCount();
+            });
+        });
+
+        updateGroupDeviceCount();
+    }
+
+    function updateGroupDeviceCount() {
+        const count = document.querySelectorAll('.group-device-checkbox:checked').length;
+        document.getElementById('group-device-count').textContent = `${count} selected`;
+    }
+
+    window.selectAllGroupDevices = function(selectAll) {
+        document.querySelectorAll('.group-device-checkbox').forEach(checkbox => {
+            checkbox.checked = selectAll;
+            checkbox.closest('.device-selection-item').classList.toggle('selected', selectAll);
+        });
+        updateGroupDeviceCount();
+    };
+
+    function updateColorPreview() {
+        const colorInput = document.getElementById('group-color');
+        const preview = document.getElementById('color-preview');
+        const color = colorInput.value;
+
+        const colorNames = {
+            '#3b82f6': 'Blue',
+            '#22c55e': 'Green',
+            '#ef4444': 'Red',
+            '#f59e0b': 'Amber',
+            '#8b5cf6': 'Purple',
+            '#ec4899': 'Pink',
+            '#06b6d4': 'Cyan',
+            '#6b7280': 'Gray'
+        };
+
+        preview.textContent = colorNames[color.toLowerCase()] || color;
+    }
+
+    // Color picker change handler
+    document.getElementById('group-color')?.addEventListener('input', updateColorPreview);
+
+    // Group form submission
+    document.getElementById('group-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const groupId = document.getElementById('group-id').value;
+        const name = document.getElementById('group-name').value.trim();
+        const description = document.getElementById('group-description').value.trim();
+        const color = document.getElementById('group-color').value;
+        const selectedDevices = Array.from(document.querySelectorAll('.group-device-checkbox:checked'))
+            .map(cb => cb.value);
+
+        if (!name) {
+            showToast('Please enter a group name', 'error');
+            return;
+        }
+
+        const submitBtn = document.getElementById('group-submit-btn');
+        setButtonLoading(submitBtn, true);
+
+        try {
+            if (groupId) {
+                // Update existing group
+                await API.updateGroup(groupId, {
+                    name,
+                    description: description || null,
+                    color,
+                    device_ips: selectedDevices
+                });
+                showToast('Group updated successfully', 'success');
+            } else {
+                // Create new group
+                await API.createGroup(name, description || null, color, selectedDevices);
+                showToast('Group created successfully', 'success');
+            }
+
+            closeModal('group-modal');
+            loadGroups();
+        } catch (error) {
+            showToast('Failed to save group: ' + error.message, 'error');
+        } finally {
+            setButtonLoading(submitBtn, false);
+        }
+    });
+
+    window.deleteGroup = async function(groupId) {
+        if (!confirm('Are you sure you want to delete this group? Devices will not be deleted.')) {
+            return;
+        }
+
+        try {
+            await API.deleteGroup(groupId);
+            showToast('Group deleted', 'success');
+            loadGroups();
+        } catch (error) {
+            showToast('Failed to delete group: ' + error.message, 'error');
+        }
+    };
+
+    // =============================================
+    // Initialization
+    // =============================================
+
+    // Initialize context menu
+    initContextMenu();
+
+    // Initialize device page tabs
+    initDevicePageTabs();
 
     // Initial load
     navigateTo('dashboard');

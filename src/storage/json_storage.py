@@ -5,7 +5,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from threading import Lock
-from ..models.device import Device, DeviceStatus, DeviceVendor
+from ..models.device import Device, DeviceStatus, DeviceVendor, DeviceGroup
 from ..models.config import Credential, ConfigSnapshot
 from ..utils.crypto import encrypt_password, decrypt_password
 
@@ -19,6 +19,7 @@ class JsonStorage:
 
         self.devices_file = self.data_dir / "devices.json"
         self.credentials_file = self.data_dir / "credentials.json"
+        self.groups_file = self.data_dir / "device_groups.json"
         self.configs_dir = self.data_dir / "configs"
         self.configs_dir.mkdir(exist_ok=True)
 
@@ -31,6 +32,8 @@ class JsonStorage:
             self._write_json(self.devices_file, [])
         if not self.credentials_file.exists():
             self._write_json(self.credentials_file, [])
+        if not self.groups_file.exists():
+            self._write_json(self.groups_file, [])
 
     def _read_json(self, filepath: Path) -> Any:
         """Read JSON file with locking."""
@@ -239,3 +242,82 @@ class JsonStorage:
                     data['timestamp'] = datetime.fromisoformat(data['timestamp'])
                 return ConfigSnapshot(**data)
         return None
+
+    # Device Group operations
+    def list_groups(self) -> List[DeviceGroup]:
+        """List all device groups."""
+        data = self._read_json(self.groups_file)
+        groups = []
+        for g in data:
+            if 'created_at' in g and isinstance(g['created_at'], str):
+                g['created_at'] = datetime.fromisoformat(g['created_at'])
+            if 'updated_at' in g and isinstance(g['updated_at'], str):
+                g['updated_at'] = datetime.fromisoformat(g['updated_at'])
+            groups.append(DeviceGroup(**g))
+        return groups
+
+    def get_group(self, group_id: str) -> Optional[DeviceGroup]:
+        """Get a device group by ID."""
+        groups = self.list_groups()
+        for group in groups:
+            if group.id == group_id:
+                return group
+        return None
+
+    def save_group(self, group: DeviceGroup) -> DeviceGroup:
+        """Save or update a device group."""
+        groups = self._read_json(self.groups_file)
+
+        existing_idx = None
+        for i, g in enumerate(groups):
+            if g['id'] == group.id:
+                existing_idx = i
+                break
+
+        group.updated_at = datetime.now()
+        group_dict = group.model_dump()
+
+        if existing_idx is not None:
+            groups[existing_idx] = group_dict
+        else:
+            groups.append(group_dict)
+
+        self._write_json(self.groups_file, groups)
+        return group
+
+    def delete_group(self, group_id: str) -> bool:
+        """Delete a device group by ID."""
+        groups = self._read_json(self.groups_file)
+        initial_len = len(groups)
+        groups = [g for g in groups if g['id'] != group_id]
+
+        if len(groups) < initial_len:
+            self._write_json(self.groups_file, groups)
+            return True
+        return False
+
+    def get_groups_for_device(self, device_ip: str) -> List[DeviceGroup]:
+        """Get all groups that contain a specific device."""
+        groups = self.list_groups()
+        return [g for g in groups if device_ip in g.device_ips]
+
+    def add_devices_to_group(self, group_id: str, device_ips: List[str]) -> Optional[DeviceGroup]:
+        """Add devices to a group."""
+        group = self.get_group(group_id)
+        if not group:
+            return None
+
+        for ip in device_ips:
+            if ip not in group.device_ips:
+                group.device_ips.append(ip)
+
+        return self.save_group(group)
+
+    def remove_devices_from_group(self, group_id: str, device_ips: List[str]) -> Optional[DeviceGroup]:
+        """Remove devices from a group."""
+        group = self.get_group(group_id)
+        if not group:
+            return None
+
+        group.device_ips = [ip for ip in group.device_ips if ip not in device_ips]
+        return self.save_group(group)

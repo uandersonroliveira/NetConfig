@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 
-from ..models.device import Device, DeviceCreate, BulkDeviceCreate, DeviceVendor, DeviceStatus
+from ..models.device import Device, DeviceCreate, BulkDeviceCreate, DeviceVendor, DeviceStatus, DeviceGroup, DeviceGroupCreate, DeviceGroupUpdate
 from ..models.config import CredentialCreate, CredentialResponse, ConfigComparison
 from ..storage.json_storage import JsonStorage
 from ..core.scanner import Scanner
@@ -73,6 +73,10 @@ class LogCollectRequest(BaseModel):
 
 
 class BulkDeleteRequest(BaseModel):
+    device_ips: List[str]
+
+
+class GroupDevicesRequest(BaseModel):
     device_ips: List[str]
 
 
@@ -1102,4 +1106,184 @@ async def get_stats():
         },
         "credentials_count": len(credentials),
         "has_default_credential": any(c.is_default for c in credentials)
+    }
+
+
+# Device Group endpoints
+@router.get("/groups")
+async def list_groups():
+    """List all device groups."""
+    groups = storage.list_groups()
+    return {
+        "groups": [
+            {
+                "id": g.id,
+                "name": g.name,
+                "description": g.description,
+                "color": g.color,
+                "device_ips": g.device_ips,
+                "device_count": len(g.device_ips),
+                "created_at": g.created_at,
+                "updated_at": g.updated_at
+            }
+            for g in groups
+        ]
+    }
+
+
+@router.post("/groups")
+async def create_group(group: DeviceGroupCreate):
+    """Create a new device group."""
+    # Validate device IPs exist
+    for ip in group.device_ips:
+        if not storage.get_device(ip):
+            raise HTTPException(status_code=400, detail=f"Device {ip} not found")
+
+    new_group = DeviceGroup(
+        name=group.name,
+        description=group.description,
+        color=group.color,
+        device_ips=group.device_ips
+    )
+    storage.save_group(new_group)
+    return {
+        "message": "Group created",
+        "group": {
+            "id": new_group.id,
+            "name": new_group.name,
+            "description": new_group.description,
+            "color": new_group.color,
+            "device_ips": new_group.device_ips,
+            "device_count": len(new_group.device_ips),
+            "created_at": new_group.created_at,
+            "updated_at": new_group.updated_at
+        }
+    }
+
+
+@router.get("/groups/{group_id}")
+async def get_group(group_id: str):
+    """Get a device group by ID."""
+    group = storage.get_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    return {
+        "group": {
+            "id": group.id,
+            "name": group.name,
+            "description": group.description,
+            "color": group.color,
+            "device_ips": group.device_ips,
+            "device_count": len(group.device_ips),
+            "created_at": group.created_at,
+            "updated_at": group.updated_at
+        }
+    }
+
+
+@router.put("/groups/{group_id}")
+async def update_group(group_id: str, updates: DeviceGroupUpdate):
+    """Update a device group."""
+    group = storage.get_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    if updates.name is not None:
+        group.name = updates.name
+    if updates.description is not None:
+        group.description = updates.description
+    if updates.color is not None:
+        group.color = updates.color
+    if updates.device_ips is not None:
+        # Validate device IPs exist
+        for ip in updates.device_ips:
+            if not storage.get_device(ip):
+                raise HTTPException(status_code=400, detail=f"Device {ip} not found")
+        group.device_ips = updates.device_ips
+
+    storage.save_group(group)
+    return {
+        "message": "Group updated",
+        "group": {
+            "id": group.id,
+            "name": group.name,
+            "description": group.description,
+            "color": group.color,
+            "device_ips": group.device_ips,
+            "device_count": len(group.device_ips),
+            "created_at": group.created_at,
+            "updated_at": group.updated_at
+        }
+    }
+
+
+@router.delete("/groups/{group_id}")
+async def delete_group(group_id: str):
+    """Delete a device group."""
+    if storage.delete_group(group_id):
+        return {"message": "Group deleted"}
+    raise HTTPException(status_code=404, detail="Group not found")
+
+
+@router.post("/groups/{group_id}/devices")
+async def add_devices_to_group(group_id: str, request: GroupDevicesRequest):
+    """Add devices to a group."""
+    group = storage.get_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    # Validate device IPs exist
+    for ip in request.device_ips:
+        if not storage.get_device(ip):
+            raise HTTPException(status_code=400, detail=f"Device {ip} not found")
+
+    updated_group = storage.add_devices_to_group(group_id, request.device_ips)
+    return {
+        "message": f"Added {len(request.device_ips)} devices to group",
+        "group": {
+            "id": updated_group.id,
+            "name": updated_group.name,
+            "device_ips": updated_group.device_ips,
+            "device_count": len(updated_group.device_ips)
+        }
+    }
+
+
+@router.delete("/groups/{group_id}/devices")
+async def remove_devices_from_group(group_id: str, request: GroupDevicesRequest):
+    """Remove devices from a group."""
+    group = storage.get_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    updated_group = storage.remove_devices_from_group(group_id, request.device_ips)
+    return {
+        "message": f"Removed devices from group",
+        "group": {
+            "id": updated_group.id,
+            "name": updated_group.name,
+            "device_ips": updated_group.device_ips,
+            "device_count": len(updated_group.device_ips)
+        }
+    }
+
+
+@router.get("/devices/{ip}/groups")
+async def get_device_groups(ip: str):
+    """Get all groups that contain a specific device."""
+    device = storage.get_device(ip)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    groups = storage.get_groups_for_device(ip)
+    return {
+        "device_ip": ip,
+        "groups": [
+            {
+                "id": g.id,
+                "name": g.name,
+                "color": g.color
+            }
+            for g in groups
+        ]
     }

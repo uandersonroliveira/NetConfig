@@ -51,7 +51,7 @@ def load_config() -> dict:
     if config_file.exists():
         with open(config_file, 'r') as f:
             return json.load(f)
-    return {"server": {"host": "127.0.0.1", "port": 8080}}
+    return {"server": {"host": "0.0.0.0", "port": 8080}}
 
 
 if __name__ == "__main__":
@@ -67,7 +67,7 @@ if __name__ == "__main__":
 
     uvicorn.run(
         app,
-        host=server_config.get("host", "127.0.0.1"),
+        host=server_config.get("host", "0.0.0.0"),
         port=server_config.get("port", 8080),
         log_level="info"
     )

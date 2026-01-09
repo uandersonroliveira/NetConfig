@@ -229,6 +229,58 @@ const API = {
     async getStats() {
         return this.request('/stats');
     },
+
+    // Device Group endpoints
+    async getGroups() {
+        return this.request('/groups');
+    },
+
+    async createGroup(name, description = null, color = null, deviceIps = []) {
+        return this.request('/groups', {
+            method: 'POST',
+            body: {
+                name,
+                description,
+                color,
+                device_ips: deviceIps,
+            },
+        });
+    },
+
+    async getGroup(groupId) {
+        return this.request(`/groups/${groupId}`);
+    },
+
+    async updateGroup(groupId, updates) {
+        return this.request(`/groups/${groupId}`, {
+            method: 'PUT',
+            body: updates,
+        });
+    },
+
+    async deleteGroup(groupId) {
+        return this.request(`/groups/${groupId}`, {
+            method: 'DELETE',
+        });
+    },
+
+    async addDevicesToGroup(groupId, deviceIps) {
+        return this.request(`/groups/${groupId}/devices`, {
+            method: 'POST',
+            body: { device_ips: deviceIps },
+        });
+    },
+
+    async removeDevicesFromGroup(groupId, deviceIps) {
+        return this.request(`/groups/${groupId}/devices`, {
+            method: 'DELETE',
+            body: { device_ips: deviceIps },
+        });
+    },
+
+    async getDeviceGroups(deviceIp) {
+        return this.request(`/devices/${deviceIp}/groups`);
+    },
 };
 
 window.API = API;
