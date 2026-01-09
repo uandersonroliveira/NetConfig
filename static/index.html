@@ -19,8 +19,13 @@
                     <li><a href="#" data-page="dashboard" class="active">&#128202; Dashboard</a></li>
                     <li><a href="#" data-page="devices">&#128421; Devices</a></li>
                     <li><a href="#" data-page="scan">&#128269; Scan Network</a></li>
-                    <li><a href="#" data-page="collect">&#128230; Collect Configs</a></li>
-                    <li><a href="#" data-page="logs">&#128220; Collect Logs</a></li>
+                    <li class="nav-submenu">
+                        <a href="#" class="nav-submenu-toggle">&#128230; Data Collection <span class="nav-arrow">&#9662;</span></a>
+                        <ul class="nav-submenu-items">
+                            <li><a href="#" data-page="collect">&#128196; Configurations</a></li>
+                            <li><a href="#" data-page="logs">&#128220; Logs</a></li>
+                        </ul>
+                    </li>
                     <li><a href="#" data-page="compare">&#128203; Compare</a></li>
                     <li><a href="#" data-page="reports">&#128196; Reports</a></li>
                     <li><a href="#" data-page="mac-search">&#128279; MAC Search</a></li>
@@ -263,10 +268,10 @@
                 </div>
             </div>
 
-            <!-- Collect Page -->
+            <!-- Configurations Collection Page -->
             <div id="page-collect" class="page-view">
                 <div class="page-header">
-                    <h2>Collection</h2>
+                    <h2>Configurations Collection</h2>
                 </div>
                 <div class="card">
                     <form id="collect-form">
@@ -294,10 +299,10 @@
                 </div>
             </div>
 
-            <!-- Log Collection Page -->
+            <!-- Logs Collection Page -->
             <div id="page-logs" class="page-view">
                 <div class="page-header">
-                    <h2>Log Collection</h2>
+                    <h2>Logs Collection</h2>
                 </div>
                 <div class="card">
                     <form id="logs-form">

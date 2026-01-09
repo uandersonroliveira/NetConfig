@@ -10,23 +10,45 @@ document.addEventListener('DOMContentLoaded', () => {
     let lastComparisonReportId = null;
 
     // DOM Elements
-    const navLinks = document.querySelectorAll('.nav-menu a');
+    const navLinks = document.querySelectorAll('.nav-menu a[data-page]');
     const pageViews = document.querySelectorAll('.page-view');
+    const submenuToggles = document.querySelectorAll('.nav-submenu-toggle');
+
+    // Submenu toggle
+    submenuToggles.forEach(toggle => {
+        toggle.addEventListener('click', (e) => {
+            e.preventDefault();
+            const submenu = toggle.closest('.nav-submenu');
+            submenu.classList.toggle('open');
+        });
+    });
 
     // Navigation
     navLinks.forEach(link => {
         link.addEventListener('click', (e) => {
             e.preventDefault();
             const page = link.dataset.page;
-            navigateTo(page);
+            if (page) {
+                navigateTo(page);
+            }
         });
     });
 
     function navigateTo(page) {
         currentPage = page;
 
+        // Update active states for nav links
         navLinks.forEach(link => {
             link.classList.toggle('active', link.dataset.page === page);
+        });
+
+        // Update submenu states
+        document.querySelectorAll('.nav-submenu').forEach(submenu => {
+            const hasActiveChild = submenu.querySelector(`a[data-page="${page}"]`);
+            submenu.classList.toggle('has-active', !!hasActiveChild);
+            if (hasActiveChild) {
+                submenu.classList.add('open');
+            }
         });
 
         pageViews.forEach(view => {
