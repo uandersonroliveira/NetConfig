@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel, Field
 import uuid
@@ -16,6 +16,8 @@ class DeviceVendor(str, Enum):
     HP = "hp"
     ARUBA = "aruba"
     CISCO = "cisco"
+    INTELBRAS = "intelbras"  # H3C/Comware platform
+    UBIQUITI = "ubiquiti"    # Ubiquiti APs
     UNKNOWN = "unknown"
 
 
@@ -29,6 +31,8 @@ class Device(BaseModel):
     last_scan: Optional[datetime] = None
     last_config_collection: Optional[datetime] = None
     notes: Optional[str] = None
+    poe_status: Optional[Dict[str, Any]] = None  # PoE utilization data
+    port_status: Optional[Dict[str, Any]] = None  # Port utilization data
 
     class Config:
         use_enum_values = True

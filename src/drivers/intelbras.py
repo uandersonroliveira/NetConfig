@@ -1,17 +1,17 @@
 import re
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from netmiko import ConnectHandler
 from netmiko.exceptions import NetmikoTimeoutException, NetmikoAuthenticationException
 from .base import BaseDriver
 
 
-class HuaweiS5720Driver(BaseDriver):
-    """Driver for Huawei S5720 series switches."""
+class IntelbrasDriver(BaseDriver):
+    """Driver for Intelbras SC 3170 switches (H3C S3100/Comware platform)."""
 
-    DEVICE_TYPE = "huawei"
+    DEVICE_TYPE = "hp_comware"
 
     def connect(self) -> bool:
-        """Establish SSH connection to the Huawei switch."""
+        """Establish SSH connection to the Intelbras switch."""
         try:
             self.connection = ConnectHandler(
                 device_type=self.DEVICE_TYPE,
@@ -49,14 +49,14 @@ class HuaweiS5720Driver(BaseDriver):
         return self._parse_mac_table(output)
 
     def _parse_mac_table(self, output: str) -> List[Dict[str, Any]]:
-        """Parse Huawei MAC address table output."""
+        """Parse Comware MAC address table output."""
         mac_entries = []
         lines = output.strip().split('\n')
 
         for line in lines:
             match = re.match(
                 r'([0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4})\s+'
-                r'(\d+)\s*/-\s+'
+                r'(\d+)\s+'
                 r'(\S+)\s+'
                 r'(\S+)',
                 line.strip()
@@ -68,26 +68,11 @@ class HuaweiS5720Driver(BaseDriver):
                     'interface': match.group(3),
                     'type': match.group(4)
                 })
-            else:
-                match2 = re.match(
-                    r'([0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4})\s+'
-                    r'(\d+)\s+'
-                    r'(\S+)\s+'
-                    r'(\S+)',
-                    line.strip()
-                )
-                if match2:
-                    mac_entries.append({
-                        'mac_address': self._normalize_mac(match2.group(1)),
-                        'vlan': int(match2.group(2)),
-                        'interface': match2.group(3),
-                        'type': match2.group(4)
-                    })
 
         return mac_entries
 
     def _normalize_mac(self, mac: str) -> str:
-        """Convert Huawei MAC format (xxxx-xxxx-xxxx) to standard format (xx:xx:xx:xx:xx:xx)."""
+        """Convert Comware MAC format (xxxx-xxxx-xxxx) to standard format (xx:xx:xx:xx:xx:xx)."""
         mac = mac.replace('-', '').lower()
         return ':'.join(mac[i:i+2] for i in range(0, 12, 2))
 
@@ -97,25 +82,25 @@ class HuaweiS5720Driver(BaseDriver):
         return self._parse_interfaces(output)
 
     def _parse_interfaces(self, output: str) -> List[Dict[str, Any]]:
-        """Parse Huawei interface brief output."""
+        """Parse Comware interface brief output."""
         interfaces = []
         lines = output.strip().split('\n')
 
         for line in lines:
             match = re.match(
-                r'(\S+)\s+(\*?(?:up|down|administratively down))\s+'
+                r'(\S+)\s+(UP|DOWN|ADM)\s+'
                 r'(\S+)\s+'
-                r'(\S+)',
+                r'(\S*)',
                 line.strip(),
                 re.IGNORECASE
             )
             if match:
-                status = match.group(2).lower().replace('*', '')
+                status = match.group(2).upper()
                 interfaces.append({
                     'interface': match.group(1),
-                    'status': 'up' if 'up' in status else 'down',
+                    'status': 'up' if status == 'UP' else 'down',
                     'protocol': match.group(3),
-                    'description': match.group(4) if match.group(4) != '--' else None
+                    'description': match.group(4) if match.group(4) else None
                 })
 
         return interfaces
@@ -126,27 +111,18 @@ class HuaweiS5720Driver(BaseDriver):
         return self._parse_vlans(output)
 
     def _parse_vlans(self, output: str) -> List[Dict[str, Any]]:
-        """Parse Huawei VLAN output."""
+        """Parse Comware VLAN output."""
         vlans = []
         lines = output.strip().split('\n')
-        current_vlan = None
 
         for line in lines:
-            vlan_match = re.match(r'^(\d+)\s+(\S+)?\s*$', line.strip())
-            if vlan_match:
-                if current_vlan:
-                    vlans.append(current_vlan)
-                current_vlan = {
-                    'vlan_id': int(vlan_match.group(1)),
-                    'name': vlan_match.group(2) if vlan_match.group(2) else f'VLAN{vlan_match.group(1)}',
+            match = re.match(r'^\s*(\d+)\s+(\S+)\s+', line)
+            if match:
+                vlans.append({
+                    'vlan_id': int(match.group(1)),
+                    'name': match.group(2),
                     'ports': []
-                }
-            elif current_vlan and 'port' in line.lower():
-                ports = re.findall(r'((?:Eth|GE|XGE)\S+)', line, re.IGNORECASE)
-                current_vlan['ports'].extend(ports)
-
-        if current_vlan:
-            vlans.append(current_vlan)
+                })
 
         return vlans
 
@@ -156,7 +132,7 @@ class HuaweiS5720Driver(BaseDriver):
         return self._parse_arp_table(output)
 
     def _parse_arp_table(self, output: str) -> List[Dict[str, Any]]:
-        """Parse Huawei ARP table output."""
+        """Parse Comware ARP table output."""
         arp_entries = []
         lines = output.strip().split('\n')
 
@@ -164,16 +140,16 @@ class HuaweiS5720Driver(BaseDriver):
             match = re.match(
                 r'(\d+\.\d+\.\d+\.\d+)\s+'
                 r'([0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4})\s+'
-                r'(\d+)\s*'
-                r'(\S+)?\s*'
-                r'(\S+)?',
+                r'(\d+)\s+'
+                r'(\S+)\s+'
+                r'(\S+)',
                 line.strip()
             )
             if match:
                 arp_entries.append({
                     'ip_address': match.group(1),
                     'mac_address': self._normalize_mac(match.group(2)),
-                    'vlan': int(match.group(3)) if match.group(3) else None,
+                    'vlan': int(match.group(3)),
                     'interface': match.group(4),
                     'type': match.group(5)
                 })
@@ -189,18 +165,19 @@ class HuaweiS5720Driver(BaseDriver):
             'hostname': None,
             'model': None,
             'version': None,
-            'vendor': 'huawei'
+            'vendor': 'intelbras'
         }
 
         hostname_match = re.search(r'sysname\s+(\S+)', config)
         if hostname_match:
             info['hostname'] = hostname_match.group(1)
 
-        model_match = re.search(r'(S5720\S*)', version_output)
+        # Look for Intelbras/H3C model patterns
+        model_match = re.search(r'(SC\s*3170\S*|S3100\S*|H3C\s+\S+)', version_output, re.IGNORECASE)
         if model_match:
             info['model'] = model_match.group(1)
 
-        version_match = re.search(r'VRP.*Version\s+([\d.]+)', version_output)
+        version_match = re.search(r'Version\s+([\d.]+)', version_output)
         if version_match:
             info['version'] = version_match.group(1)
 
@@ -210,24 +187,21 @@ class HuaweiS5720Driver(BaseDriver):
         """Retrieve device logs."""
         logs = []
 
-        # Get logbuffer (system logs)
         try:
             logbuffer = self.send_command("display logbuffer")
             logs.append("=== LOG BUFFER ===\n" + logbuffer)
         except Exception:
             pass
 
-        # Get trap buffer
         try:
-            trapbuffer = self.send_command("display trapbuffer")
-            logs.append("\n=== TRAP BUFFER ===\n" + trapbuffer)
+            diagnostic = self.send_command("display diagnostic-information")
+            logs.append("\n=== DIAGNOSTIC INFO ===\n" + diagnostic)
         except Exception:
             pass
 
-        # Get alarm information
         try:
-            alarm = self.send_command("display alarm active")
-            logs.append("\n=== ACTIVE ALARMS ===\n" + alarm)
+            health = self.send_command("display device")
+            logs.append("\n=== DEVICE STATUS ===\n" + health)
         except Exception:
             pass
 
@@ -237,53 +211,54 @@ class HuaweiS5720Driver(BaseDriver):
         """Retrieve LLDP neighbor information."""
         neighbors = []
         try:
-            output = self.send_command("display lldp neighbor brief")
-            lines = output.strip().split('\n')
+            output = self.send_command("display lldp neighbor-information")
+            current_neighbor = {}
 
-            for line in lines:
-                # Format: Local Intf  Neighbor Dev  Neighbor Intf  Hold-time
-                match = re.match(
-                    r'(\S+)\s+(\S+)\s+(\S+)\s+(\d+)',
-                    line.strip()
-                )
-                if match and not line.startswith('Local'):
-                    neighbors.append({
-                        'local_interface': match.group(1),
-                        'neighbor_device': match.group(2),
-                        'neighbor_interface': match.group(3),
-                        'hold_time': int(match.group(4)),
-                        'capabilities': None
-                    })
+            for line in output.strip().split('\n'):
+                line = line.strip()
+                if 'LLDP neighbor-information' in line or (line.startswith('Port') and ':' not in line):
+                    if current_neighbor and 'neighbor_device' in current_neighbor:
+                        neighbors.append(current_neighbor)
+                    current_neighbor = {}
+                    port_match = re.search(r'port\s+(\S+)', line, re.IGNORECASE)
+                    if port_match:
+                        current_neighbor['local_interface'] = port_match.group(1)
+                elif 'System name' in line:
+                    current_neighbor['neighbor_device'] = line.split(':')[-1].strip()
+                elif 'Port ID' in line:
+                    current_neighbor['neighbor_interface'] = line.split(':')[-1].strip()
+                elif 'System capabilities' in line:
+                    current_neighbor['capabilities'] = line.split(':')[-1].strip()
+
+            if current_neighbor and 'neighbor_device' in current_neighbor:
+                neighbors.append(current_neighbor)
         except Exception:
             pass
 
-        # Try detailed command if brief didn't work
         if not neighbors:
             try:
-                output = self.send_command("display lldp neighbor")
-                current_neighbor = {}
-                for line in output.strip().split('\n'):
-                    if 'Port' in line and 'neighbor' in line.lower():
-                        if current_neighbor:
-                            neighbors.append(current_neighbor)
-                        current_neighbor = {}
-                    if 'System name' in line:
-                        current_neighbor['neighbor_device'] = line.split(':')[-1].strip()
-                    elif 'Port ID' in line:
-                        current_neighbor['neighbor_interface'] = line.split(':')[-1].strip()
-                    elif 'Port Description' in line:
-                        current_neighbor['local_interface'] = line.split(':')[-1].strip()
-                    elif 'System capabilities' in line:
-                        current_neighbor['capabilities'] = line.split(':')[-1].strip()
-                if current_neighbor:
-                    neighbors.append(current_neighbor)
+                output = self.send_command("display lldp neighbor-information brief")
+                lines = output.strip().split('\n')
+
+                for line in lines:
+                    match = re.match(
+                        r'(\S+)\s+(\S+)\s+(\S+)',
+                        line.strip()
+                    )
+                    if match and not line.lower().startswith('local'):
+                        neighbors.append({
+                            'local_interface': match.group(1),
+                            'neighbor_device': match.group(2),
+                            'neighbor_interface': match.group(3),
+                            'capabilities': None
+                        })
             except Exception:
                 pass
 
         return neighbors
 
     def get_cdp_neighbors(self) -> List[Dict[str, Any]]:
-        """Retrieve CDP neighbor information (Huawei does not support CDP)."""
+        """Retrieve CDP neighbor information (Comware does not support CDP)."""
         return []
 
     def get_poe_status(self) -> Dict[str, Any]:
@@ -297,12 +272,12 @@ class HuaweiS5720Driver(BaseDriver):
         }
 
         try:
-            # Get PoE power summary
-            power_output = self.send_command("display poe power-state")
+            # Try to get PoE power summary
+            power_output = self.send_command("display poe power")
 
             # Parse total budget and used power
-            budget_match = re.search(r'(?:Total|Maximum)\s+Power[:\s]+(\d+\.?\d*)\s*W', power_output, re.IGNORECASE)
-            used_match = re.search(r'(?:Consuming|Used|Current)\s+Power[:\s]+(\d+\.?\d*)\s*W', power_output, re.IGNORECASE)
+            budget_match = re.search(r'Maximum\s+Power[:\s]+(\d+\.?\d*)\s*W', power_output, re.IGNORECASE)
+            used_match = re.search(r'(?:Consuming|Used)\s+Power[:\s]+(\d+\.?\d*)\s*W', power_output, re.IGNORECASE)
 
             if budget_match:
                 result['supported'] = True
@@ -319,17 +294,17 @@ class HuaweiS5720Driver(BaseDriver):
                 port_lines = port_output.strip().split('\n')
 
                 for line in port_lines:
-                    # Match interface PoE lines
+                    # Match interface PoE lines like: GE0/0/1 enabled on 5.2W 15.4W ...
                     match = re.match(
-                        r'(GE|GigabitEthernet|Eth)\S*\s+(enabled|disabled|on|off)\s+.*?(\d+\.?\d*)\s*W',
+                        r'(\S+)\s+(enabled|disabled|on|off)\s+(\S+)?\s*(\d+\.?\d*)?\s*W?\s*(\d+\.?\d*)?\s*W?',
                         line.strip(), re.IGNORECASE
                     )
                     if match:
                         port_info = {
                             'interface': match.group(1),
                             'status': 'on' if match.group(2).lower() in ['enabled', 'on'] else 'off',
-                            'power_watts': float(match.group(3)) if match.group(3) else 0,
-                            'max_watts': 30.0,
+                            'power_watts': float(match.group(4)) if match.group(4) else 0,
+                            'max_watts': float(match.group(5)) if match.group(5) else 15.4,
                             'device': ''
                         }
                         result['ports'].append(port_info)
@@ -337,7 +312,6 @@ class HuaweiS5720Driver(BaseDriver):
                 pass
 
         except Exception:
-            # PoE may not be supported on this device
             pass
 
         return result
@@ -358,13 +332,12 @@ class HuaweiS5720Driver(BaseDriver):
             for line in lines:
                 # Match interface status lines
                 match = re.match(
-                    r'(GigabitEthernet|GE|XGE|Eth)\S*\s+(\*?(?:up|down))',
+                    r'(GigabitEthernet|FastEthernet|Ethernet|GE|FE)\S*\s+(UP|DOWN|ADM)',
                     line.strip(), re.IGNORECASE
                 )
                 if match:
                     result['total_ports'] += 1
-                    status = match.group(2).lower().replace('*', '')
-                    if 'up' in status:
+                    if match.group(2).upper() == 'UP':
                         result['active_ports'] += 1
 
             if result['total_ports'] > 0:
@@ -372,10 +345,12 @@ class HuaweiS5720Driver(BaseDriver):
 
             # Try to get stack information
             try:
-                stack_output = self.send_command("display stack")
-                # Parse stack members
-                for line in stack_output.strip().split('\n'):
-                    member_match = re.match(r'\s*(\d+)\s+(\S+)\s+(Master|Standby|Slave)', line, re.IGNORECASE)
+                stack_output = self.send_command("display device")
+                stack_lines = stack_output.strip().split('\n')
+
+                for line in stack_lines:
+                    # Look for member/slot info
+                    member_match = re.match(r'(?:Slot|Member)\s*(\d+)', line, re.IGNORECASE)
                     if member_match:
                         result['stack_members'].append({
                             'member_id': int(member_match.group(1)),

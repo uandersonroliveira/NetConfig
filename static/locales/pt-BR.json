@@ -95,6 +95,10 @@
     "collectionProgress": "Progresso da Coleta",
     "selectionHelpers": "Shift+Clique para intervalo | Ctrl+Clique para alternar | Ctrl+A selecionar todos | Clique direito para ações de grupo",
     "noDevices": "Nenhum dispositivo cadastrado ainda",
+    "poeStatus": "PoE",
+    "portUsage": "Portas",
+    "noPoe": "N/A",
+    "utilization": "utilização",
     "addDevicesModal": {
       "title": "Adicionar Dispositivos",
       "ipAddresses": "Endereços IP",
@@ -339,7 +343,9 @@
     "huawei": "Huawei",
     "hp": "HP",
     "aruba": "Aruba",
-    "cisco": "Cisco (IOS)"
+    "cisco": "Cisco (IOS)",
+    "intelbras": "Intelbras",
+    "ubiquiti": "Ubiquiti"
   },
   "status": {
     "online": "online",

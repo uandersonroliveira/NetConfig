@@ -362,3 +362,77 @@ class ArubaDriver(BaseDriver):
             pass
 
         return neighbors
+
+    def get_poe_status(self) -> Dict[str, Any]:
+        """Get PoE status. Aruba APs typically consume PoE, not provide it."""
+        result = {
+            'supported': False,
+            'total_budget_watts': 0,
+            'used_watts': 0,
+            'utilization_percent': 0,
+            'ports': [],
+            'note': 'Access Point (consumes PoE)'
+        }
+
+        # Try to get power consumption info for controllers with PoE ports
+        try:
+            power_output = self.send_command("show power")
+
+            # Some Aruba controllers may have PoE output
+            budget_match = re.search(r'(?:Total|Maximum|Available)\s+Power[:\s]+(\d+\.?\d*)\s*W', power_output, re.IGNORECASE)
+            used_match = re.search(r'(?:Used|Consumed)\s+Power[:\s]+(\d+\.?\d*)\s*W', power_output, re.IGNORECASE)
+
+            if budget_match:
+                result['supported'] = True
+                result['total_budget_watts'] = float(budget_match.group(1))
+            if used_match:
+                result['used_watts'] = float(used_match.group(1))
+
+            if result['total_budget_watts'] > 0:
+                result['utilization_percent'] = (result['used_watts'] / result['total_budget_watts']) * 100
+        except Exception:
+            pass
+
+        return result
+
+    def get_port_utilization(self) -> Dict[str, Any]:
+        """Get port utilization statistics."""
+        result = {
+            'total_ports': 0,
+            'active_ports': 0,
+            'utilization_percent': 0,
+            'stack_members': [],
+            'connected_clients': 0
+        }
+
+        try:
+            # Get interface status
+            output = self.send_command("show interface status")
+            lines = output.strip().split('\n')
+
+            for line in lines:
+                # Match interface status lines
+                match = re.match(
+                    r'(\S+)\s+.*?(up|down)',
+                    line.strip(), re.IGNORECASE
+                )
+                if match and not line.lower().startswith('port'):
+                    result['total_ports'] += 1
+                    if match.group(2).lower() == 'up':
+                        result['active_ports'] += 1
+
+            if result['total_ports'] > 0:
+                result['utilization_percent'] = (result['active_ports'] / result['total_ports']) * 100
+        except Exception:
+            pass
+
+        # Try to get connected clients count
+        try:
+            clients_output = self.send_command("show user-table count")
+            count_match = re.search(r'(\d+)\s+(?:user|client)', clients_output, re.IGNORECASE)
+            if count_match:
+                result['connected_clients'] = int(count_match.group(1))
+        except Exception:
+            pass
+
+        return result

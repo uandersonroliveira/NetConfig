@@ -264,3 +264,104 @@ class HP1900Driver(BaseDriver):
     def get_cdp_neighbors(self) -> List[Dict[str, Any]]:
         """Retrieve CDP neighbor information (HP Comware does not support CDP)."""
         return []
+
+    def get_poe_status(self) -> Dict[str, Any]:
+        """Get PoE status including budget, used, and per-port details."""
+        result = {
+            'supported': False,
+            'total_budget_watts': 0,
+            'used_watts': 0,
+            'utilization_percent': 0,
+            'ports': []
+        }
+
+        try:
+            # Get PoE power summary
+            power_output = self.send_command("display poe power")
+
+            # Parse total budget and used power
+            budget_match = re.search(r'Maximum\s+Power[:\s]+(\d+\.?\d*)\s*W', power_output, re.IGNORECASE)
+            used_match = re.search(r'(?:Consuming|Used)\s+Power[:\s]+(\d+\.?\d*)\s*W', power_output, re.IGNORECASE)
+
+            if budget_match:
+                result['supported'] = True
+                result['total_budget_watts'] = float(budget_match.group(1))
+            if used_match:
+                result['used_watts'] = float(used_match.group(1))
+
+            if result['total_budget_watts'] > 0:
+                result['utilization_percent'] = (result['used_watts'] / result['total_budget_watts']) * 100
+
+            # Try to get per-port PoE status
+            try:
+                port_output = self.send_command("display poe interface")
+                port_lines = port_output.strip().split('\n')
+
+                for line in port_lines:
+                    # Match interface PoE lines
+                    match = re.match(
+                        r'(GE|GigabitEthernet)\S*\s+(enabled|disabled|on|off)\s+.*?(\d+\.?\d*)?\s*W?',
+                        line.strip(), re.IGNORECASE
+                    )
+                    if match:
+                        port_info = {
+                            'interface': match.group(1),
+                            'status': 'on' if match.group(2).lower() in ['enabled', 'on'] else 'off',
+                            'power_watts': float(match.group(3)) if match.group(3) else 0,
+                            'max_watts': 15.4,
+                            'device': ''
+                        }
+                        result['ports'].append(port_info)
+            except Exception:
+                pass
+
+        except Exception:
+            pass
+
+        return result
+
+    def get_port_utilization(self) -> Dict[str, Any]:
+        """Get port utilization statistics."""
+        result = {
+            'total_ports': 0,
+            'active_ports': 0,
+            'utilization_percent': 0,
+            'stack_members': []
+        }
+
+        try:
+            output = self.send_command("display interface brief")
+            lines = output.strip().split('\n')
+
+            for line in lines:
+                # Match interface status lines
+                match = re.match(
+                    r'(GigabitEthernet|GE|FastEthernet|FE|Ethernet)\S*\s+(UP|DOWN|ADM)',
+                    line.strip(), re.IGNORECASE
+                )
+                if match:
+                    result['total_ports'] += 1
+                    if match.group(2).upper() == 'UP':
+                        result['active_ports'] += 1
+
+            if result['total_ports'] > 0:
+                result['utilization_percent'] = (result['active_ports'] / result['total_ports']) * 100
+
+            # Try to get device/stack information
+            try:
+                device_output = self.send_command("display device")
+                for line in device_output.strip().split('\n'):
+                    member_match = re.match(r'(?:Slot|Unit)\s*(\d+)', line, re.IGNORECASE)
+                    if member_match:
+                        result['stack_members'].append({
+                            'member_id': int(member_match.group(1)),
+                            'total_ports': 0,
+                            'active_ports': 0
+                        })
+            except Exception:
+                pass
+
+        except Exception:
+            pass
+
+        return result

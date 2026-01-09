@@ -358,6 +358,47 @@ tr:hover {
     color: #1e40af;
 }
 
+.badge-muted {
+    background-color: #f3f4f6;
+    color: #6b7280;
+}
+
+/* Utilization indicators */
+.utilization-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 50px;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+/* Low utilization (0-49%) - Green */
+.utilization-low {
+    background-color: #dcfce7;
+    color: #166534;
+}
+
+/* Medium utilization (50-74%) - Yellow */
+.utilization-medium {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+/* High utilization (75-89%) - Orange */
+.utilization-high {
+    background-color: #fed7aa;
+    color: #c2410c;
+}
+
+/* Critical utilization (90%+) - Red */
+.utilization-critical {
+    background-color: #fee2e2;
+    color: #991b1b;
+}
+
 /* Progress bar */
 .progress-container {
     margin: 1rem 0;

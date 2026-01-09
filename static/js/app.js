@@ -1410,7 +1410,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!devices.length) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="7" class="empty-state">
+                    <td colspan="9" class="empty-state">
                         <div class="empty-state-icon">&#128268;</div>
                         <p>${I18n.t('devices.noDevices') || 'No devices registered yet'}</p>
                     </td>
@@ -1432,6 +1432,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                         ${device.status || 'unknown'}
                     </span>
                 </td>
+                <td>${renderPoeStatus(device.poe_status)}</td>
+                <td>${renderPortUsage(device.port_status)}</td>
                 <td>${device.model || '-'}</td>
                 <td>
                     <div class="action-buttons">
@@ -1451,6 +1453,45 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Initialize or refresh SelectionManager
         initDeviceSelection();
+    }
+
+    function renderPoeStatus(poeStatus) {
+        if (!poeStatus || !poeStatus.supported) {
+            return `<span class="badge badge-muted" title="${I18n.t('devices.noPoe') || 'No PoE capability'}">
+                ${I18n.t('devices.noPoe') || 'N/A'}
+            </span>`;
+        }
+
+        const percent = poeStatus.utilization_percent || 0;
+        const colorClass = getUtilizationColorClass(percent);
+        const usedWatts = poeStatus.used_watts?.toFixed(1) || '0';
+        const totalWatts = poeStatus.total_budget_watts?.toFixed(0) || '0';
+
+        return `<span class="utilization-badge ${colorClass}" title="${usedWatts}W / ${totalWatts}W">
+            ${percent.toFixed(0)}%
+        </span>`;
+    }
+
+    function renderPortUsage(portStatus) {
+        if (!portStatus || !portStatus.total_ports) {
+            return `<span class="badge badge-muted">-</span>`;
+        }
+
+        const active = portStatus.active_ports || 0;
+        const total = portStatus.total_ports || 0;
+        const percent = total > 0 ? (active / total) * 100 : 0;
+        const colorClass = getUtilizationColorClass(percent);
+
+        return `<span class="utilization-badge ${colorClass}" title="${percent.toFixed(0)}% ${I18n.t('devices.utilization') || 'utilization'}">
+            ${active}/${total}
+        </span>`;
+    }
+
+    function getUtilizationColorClass(percent) {
+        if (percent >= 90) return 'utilization-critical';  // Red
+        if (percent >= 75) return 'utilization-high';      // Orange
+        if (percent >= 50) return 'utilization-medium';    // Yellow
+        return 'utilization-low';                          // Green
     }
 
     function getStatusBadgeClass(status) {

@@ -419,3 +419,104 @@ class CiscoIOSDriver(BaseDriver):
             pass
 
         return neighbors
+
+    def get_poe_status(self) -> Dict[str, Any]:
+        """Get PoE status including budget, used, and per-port details."""
+        result = {
+            'supported': False,
+            'total_budget_watts': 0,
+            'used_watts': 0,
+            'utilization_percent': 0,
+            'ports': []
+        }
+
+        try:
+            # Get PoE power inline summary
+            power_output = self.send_command("show power inline")
+
+            # Parse module/chassis totals
+            # Format: Available:370.0(w)  Used:45.6(w)  Remaining:324.4(w)
+            available_match = re.search(r'Available[:\s]*(\d+\.?\d*)\s*\(?[wW]', power_output)
+            used_match = re.search(r'Used[:\s]*(\d+\.?\d*)\s*\(?[wW]', power_output)
+
+            if available_match:
+                result['supported'] = True
+                result['total_budget_watts'] = float(available_match.group(1))
+            if used_match:
+                result['used_watts'] = float(used_match.group(1))
+
+            if result['total_budget_watts'] > 0:
+                result['utilization_percent'] = (result['used_watts'] / result['total_budget_watts']) * 100
+
+            # Parse per-port PoE status
+            lines = power_output.strip().split('\n')
+            for line in lines:
+                # Format: Interface  Admin  Oper  Power  Device  Class  Max
+                # Gi1/0/1   auto   on    6.4   IP Phone  2  15.4
+                match = re.match(
+                    r'(Gi|Fa|Te)\S+\s+(auto|off|on|static)\s+(on|off|faulty)\s+'
+                    r'(\d+\.?\d*)\s+(\S.*?)?\s*(\d+)?\s*(\d+\.?\d*)?',
+                    line.strip(), re.IGNORECASE
+                )
+                if match:
+                    port_info = {
+                        'interface': match.group(0).split()[0],
+                        'status': match.group(3).lower(),
+                        'power_watts': float(match.group(4)) if match.group(4) else 0,
+                        'max_watts': float(match.group(7)) if match.group(7) else 15.4,
+                        'device': match.group(5).strip() if match.group(5) else ''
+                    }
+                    result['ports'].append(port_info)
+
+        except Exception:
+            pass
+
+        return result
+
+    def get_port_utilization(self) -> Dict[str, Any]:
+        """Get port utilization statistics."""
+        result = {
+            'total_ports': 0,
+            'active_ports': 0,
+            'utilization_percent': 0,
+            'stack_members': []
+        }
+
+        try:
+            output = self.send_command("show interfaces status")
+            lines = output.strip().split('\n')
+
+            for line in lines:
+                # Match interface status lines
+                # Format: Port  Name  Status  Vlan  Duplex  Speed  Type
+                match = re.match(
+                    r'(Gi|Fa|Te|Tw)\S+\s+\S*\s+(connected|notconnect|disabled|err-disabled)',
+                    line.strip(), re.IGNORECASE
+                )
+                if match:
+                    result['total_ports'] += 1
+                    if match.group(2).lower() == 'connected':
+                        result['active_ports'] += 1
+
+            if result['total_ports'] > 0:
+                result['utilization_percent'] = (result['active_ports'] / result['total_ports']) * 100
+
+            # Try to get stack information
+            try:
+                stack_output = self.send_command("show switch")
+                for line in stack_output.strip().split('\n'):
+                    # Format: Switch#  Role  Mac Address  ...
+                    member_match = re.match(r'\s*(\d+)\s+(Master|Member|Standby)', line, re.IGNORECASE)
+                    if member_match:
+                        result['stack_members'].append({
+                            'member_id': int(member_match.group(1)),
+                            'total_ports': 0,
+                            'active_ports': 0
+                        })
+            except Exception:
+                pass
+
+        except Exception:
+            pass
+
+        return result

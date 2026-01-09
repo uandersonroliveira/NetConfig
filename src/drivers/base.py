@@ -67,6 +67,49 @@ class BaseDriver(ABC):
         """Retrieve CDP neighbor information (if supported)."""
         pass
 
+    @abstractmethod
+    def get_poe_status(self) -> Dict[str, Any]:
+        """Get PoE status including budget, used, and per-port details.
+
+        Returns:
+            {
+                'supported': bool,          # Device supports PoE
+                'total_budget_watts': float, # Total PoE budget
+                'used_watts': float,         # Currently used
+                'utilization_percent': float, # Percentage used
+                'ports': [                   # Per-port details
+                    {
+                        'interface': str,
+                        'status': str,       # 'on', 'off', 'fault'
+                        'power_watts': float,
+                        'max_watts': float,
+                        'device': str        # Connected device name
+                    }
+                ]
+            }
+        """
+        pass
+
+    @abstractmethod
+    def get_port_utilization(self) -> Dict[str, Any]:
+        """Get port utilization statistics.
+
+        Returns:
+            {
+                'total_ports': int,
+                'active_ports': int,      # Ports with link up
+                'utilization_percent': float,
+                'stack_members': [        # For stacked switches
+                    {
+                        'member_id': int,
+                        'total_ports': int,
+                        'active_ports': int
+                    }
+                ]
+            }
+        """
+        pass
+
     def send_command(self, command: str) -> str:
         """Send a command and return the output."""
         if self.connection:

@@ -69,6 +69,18 @@ class Collector:
                 config = driver.get_config()
                 device_info = driver.get_device_info()
 
+                # Get PoE and port utilization data
+                poe_status = None
+                port_status = None
+                try:
+                    poe_status = driver.get_poe_status()
+                except Exception:
+                    pass
+                try:
+                    port_status = driver.get_port_utilization()
+                except Exception:
+                    pass
+
                 parsed_data = {
                     'hostname': device_info.get('hostname'),
                     'model': device_info.get('model'),
@@ -77,6 +89,8 @@ class Collector:
                     'interfaces': driver.get_interfaces(),
                     'mac_table': driver.get_mac_table(),
                     'arp_table': driver.get_arp_table(),
+                    'poe_status': poe_status,
+                    'port_status': port_status,
                 }
 
                 duration = time.time() - start_time
@@ -89,6 +103,8 @@ class Collector:
                 device.model = device_info.get('model') or device.model
                 device.status = DeviceStatus.ONLINE
                 device.last_config_collection = datetime.now()
+                device.poe_status = poe_status
+                device.port_status = port_status
                 self.storage.save_device(device)
 
                 return CollectionResult(device.ip, True, snapshot, duration=duration)
