@@ -48,7 +48,26 @@
     "back": "Back",
     "filterPlaceholder": "Filter by hostname, IP, or vendor...",
     "credential": "Credential",
-    "autoDetect": "Auto-detect"
+    "autoDetect": "Auto-detect",
+    "loggingIn": "Logging in...",
+    "changing": "Changing...",
+    "comparing": "Comparing...",
+    "collecting": "Collecting...",
+    "scanning": "Scanning...",
+    "adding": "Adding...",
+    "discovering": "Discovering...",
+    "searching": "Searching...",
+    "checking": "Checking...",
+    "done": "Done",
+    "success": "Success",
+    "error": "Error",
+    "unknown": "Unknown",
+    "unknownError": "Unknown error",
+    "identical": "Identical",
+    "differences": "{{count}} differences",
+    "configuration": "Configuration",
+    "noLogsAvailable": "No logs available",
+    "emailOptional": "Email (optional)"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -62,6 +81,8 @@
     "addDevices": "Add Devices",
     "updateStatus": "Update Status",
     "deleteSelected": "Delete Selected",
+    "downloadSelected": "Download Configs",
+    "downloadConfig": "Download",
     "ipAddress": "IP Address",
     "hostname": "Hostname",
     "vendor": "Vendor",
@@ -130,6 +151,7 @@
       "title": "LLDP/CDP Discovery",
       "description": "Discover network neighbors by querying LLDP/CDP from devices.",
       "ipRangeOptional": "IP Range (optional)",
+      "ipRangePlaceholder": "192.168.1.0/24 or 192.168.1.1-50 (leave empty to use known devices)",
       "ipRangeHelper": "If provided, scans the range first, detects vendors, then discovers neighbors",
       "startDiscovery": "Start Discovery",
       "discovering": "Discovering...",
@@ -182,7 +204,8 @@
     "linesAdded": "Lines added:",
     "linesRemoved": "Lines removed:",
     "vlansChanged": "VLANs changed:",
-    "interfacesChanged": "Interfaces changed:"
+    "interfacesChanged": "Interfaces changed:",
+    "showDifferences": "Show differences"
   },
   "reports": {
     "title": "Reports",
@@ -193,7 +216,8 @@
     "reference": "Reference",
     "targets": "Targets",
     "backToReports": "Back to Reports",
-    "comparisonReport": "Comparison Report"
+    "comparisonReport": "Comparison Report",
+    "failedToLoadDetails": "Failed to load report details"
   },
   "macSearch": {
     "title": "MAC Address Search",
@@ -264,6 +288,7 @@
     "admin": "Admin",
     "readonly": "Read-only",
     "local": "Local",
+    "ad": "AD",
     "never": "Never",
     "changePassword": "Change Password",
     "currentPassword": "Current Password",

@@ -189,6 +189,36 @@ const API = {
         return this.request(`/compare/reports/${reportId}`);
     },
 
+    // Config download endpoints
+    downloadConfig(ip) {
+        window.location.href = `${this.baseUrl}/configs/${ip}/download`;
+    },
+
+    async downloadConfigsBulk(deviceIps) {
+        const response = await fetch(`${this.baseUrl}/configs/download/bulk`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(Auth.getToken() ? { 'Authorization': `Bearer ${Auth.getToken()}` } : {}),
+            },
+            body: JSON.stringify({ device_ips: deviceIps }),
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to download configurations');
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = response.headers.get('Content-Disposition')?.split('filename=')[1] || 'configs.zip';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
+    },
+
     // Log collection endpoints
     async collectLogs(deviceIps, credentialId = null) {
         return this.request('/logs/collect', {

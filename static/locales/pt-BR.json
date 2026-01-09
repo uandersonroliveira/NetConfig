@@ -48,7 +48,26 @@
     "back": "Voltar",
     "filterPlaceholder": "Filtrar por hostname, IP ou fabricante...",
     "credential": "Credencial",
-    "autoDetect": "Auto-detectar"
+    "autoDetect": "Auto-detectar",
+    "loggingIn": "Entrando...",
+    "changing": "Alterando...",
+    "comparing": "Comparando...",
+    "collecting": "Coletando...",
+    "scanning": "Varrendo...",
+    "adding": "Adicionando...",
+    "discovering": "Descobrindo...",
+    "searching": "Buscando...",
+    "checking": "Verificando...",
+    "done": "Concluído",
+    "success": "Sucesso",
+    "error": "Erro",
+    "unknown": "Desconhecido",
+    "unknownError": "Erro desconhecido",
+    "identical": "Idêntico",
+    "differences": "{{count}} diferenças",
+    "configuration": "Configuração",
+    "noLogsAvailable": "Nenhum log disponível",
+    "emailOptional": "E-mail (opcional)"
   },
   "dashboard": {
     "title": "Painel",
@@ -62,6 +81,8 @@
     "addDevices": "Adicionar Dispositivos",
     "updateStatus": "Atualizar Status",
     "deleteSelected": "Excluir Selecionados",
+    "downloadSelected": "Baixar Configs",
+    "downloadConfig": "Baixar",
     "ipAddress": "Endereço IP",
     "hostname": "Hostname",
     "vendor": "Fabricante",
@@ -130,6 +151,7 @@
       "title": "Descoberta LLDP/CDP",
       "description": "Descubra vizinhos de rede consultando LLDP/CDP dos dispositivos.",
       "ipRangeOptional": "Faixa de IP (opcional)",
+      "ipRangePlaceholder": "192.168.1.0/24 ou 192.168.1.1-50 (deixe vazio para usar dispositivos conhecidos)",
       "ipRangeHelper": "Se fornecido, varre a faixa primeiro, detecta fabricantes, depois descobre vizinhos",
       "startDiscovery": "Iniciar Descoberta",
       "discovering": "Descobrindo...",
@@ -182,7 +204,8 @@
     "linesAdded": "Linhas adicionadas:",
     "linesRemoved": "Linhas removidas:",
     "vlansChanged": "VLANs alteradas:",
-    "interfacesChanged": "Interfaces alteradas:"
+    "interfacesChanged": "Interfaces alteradas:",
+    "showDifferences": "Mostrar diferenças"
   },
   "reports": {
     "title": "Relatórios",
@@ -193,7 +216,8 @@
     "reference": "Referência",
     "targets": "Alvos",
     "backToReports": "Voltar aos Relatórios",
-    "comparisonReport": "Relatório de Comparação"
+    "comparisonReport": "Relatório de Comparação",
+    "failedToLoadDetails": "Falha ao carregar detalhes do relatório"
   },
   "macSearch": {
     "title": "Busca de Endereço MAC",
@@ -264,6 +288,7 @@
     "admin": "Admin",
     "readonly": "Somente Leitura",
     "local": "Local",
+    "ad": "AD",
     "never": "Nunca",
     "changePassword": "Alterar Senha",
     "currentPassword": "Senha Atual",

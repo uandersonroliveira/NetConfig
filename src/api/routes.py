@@ -1,8 +1,11 @@
 import asyncio
+import io
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..models.device import Device, DeviceCreate, BulkDeviceCreate, DeviceVendor, DeviceStatus, DeviceGroup, DeviceGroupCreate, DeviceGroupUpdate
@@ -67,6 +70,8 @@ class BatchCompareRequest(BaseModel):
 class MacSearchRequest(BaseModel):
     mac_address: str
     use_cache: bool = True
+    device_ips: Optional[List[str]] = None
+    credential_id: Optional[str] = None
 
 
 # Request models for device operations
@@ -842,6 +847,61 @@ async def get_latest_config(ip: str):
     }
 
 
+@router.get("/configs/{ip}/download")
+async def download_config(ip: str):
+    """Download the latest configuration for a device as a text file."""
+    config = storage.get_latest_config(ip)
+    if not config:
+        raise HTTPException(status_code=404, detail="No configuration found")
+
+    device = storage.get_device(ip)
+    hostname = device.hostname if device else ip
+    filename = f"{hostname}_{ip}_{config.timestamp.strftime('%Y%m%d_%H%M%S')}.txt"
+
+    return StreamingResponse(
+        io.BytesIO(config.raw_config.encode('utf-8')),
+        media_type="text/plain",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+class BulkDownloadRequest(BaseModel):
+    device_ips: List[str]
+
+
+@router.post("/configs/download/bulk")
+async def download_configs_bulk(request: BulkDownloadRequest):
+    """Download configurations for multiple devices as a ZIP file."""
+    if not request.device_ips:
+        raise HTTPException(status_code=400, detail="No devices specified")
+
+    # Create ZIP file in memory
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        for ip in request.device_ips:
+            config = storage.get_latest_config(ip)
+            if not config:
+                continue
+
+            device = storage.get_device(ip)
+            hostname = device.hostname if device else ip
+            filename = f"{hostname}_{ip}_{config.timestamp.strftime('%Y%m%d_%H%M%S')}.txt"
+
+            zip_file.writestr(filename, config.raw_config)
+
+    zip_buffer.seek(0)
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    zip_filename = f"configs_{timestamp}.zip"
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={zip_filename}"}
+    )
+
+
 # Store comparison reports in memory (could be persisted to JSON)
 comparison_reports = []
 
@@ -993,14 +1053,24 @@ async def search_mac(mac_address: str, use_cache: bool = True):
 
 @router.post("/mac/search")
 async def search_mac_live(request: MacSearchRequest, background_tasks: BackgroundTasks, current_user: User = Depends(require_write_access)):
-    """Search for a MAC address with live device queries across all online devices."""
+    """Search for a MAC address with live device queries across selected devices."""
     mac_address = request.mac_address
     is_wildcard = mac_finder.is_wildcard_pattern(mac_address)
     display_mac = mac_address if is_wildcard else (mac_finder.normalize_mac(mac_address) or mac_address)
 
-    # Get list of devices for initial response
-    devices = storage.list_devices()
+    # Get list of devices - filter by selected IPs if provided
+    all_devices = storage.list_devices()
+    if request.device_ips and len(request.device_ips) > 0:
+        devices = [d for d in all_devices if d.ip in request.device_ips]
+    else:
+        devices = all_devices
+
     device_list = [{'ip': d.ip, 'hostname': d.hostname or d.ip, 'vendor': d.vendor} for d in devices]
+
+    # Get credential if specified
+    credential = None
+    if request.credential_id:
+        credential = storage.get_credential(request.credential_id)
 
     def run_mac_search():
         loop = asyncio.new_event_loop()
@@ -1018,7 +1088,8 @@ async def search_mac_live(request: MacSearchRequest, background_tasks: Backgroun
             # Mark as complete after broadcast
             device_statuses[ip] = 'complete'
 
-        results = mac_finder.search_mac(mac_address, progress_callback)
+        # Pass filtered devices and credential to search_mac
+        results = mac_finder.search_mac(mac_address, progress_callback, devices, credential)
 
         loop.run_until_complete(manager.broadcast_complete('mac_search', {
             'mac_address': display_mac,

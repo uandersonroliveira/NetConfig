@@ -6,34 +6,40 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize authentication
     Auth.init();
 
-    // Check if authentication is required
-    const authStatus = await Auth.checkAuthRequired();
-
-    if (authStatus.auth_required) {
-        if (!Auth.isAuthenticated()) {
-            showLoginPage(authStatus.ad_enabled);
-            return;
-        }
-
-        // Check if password change is required
-        if (Auth.mustChangePassword()) {
-            showForcePasswordChangeModal();
-            return;
-        }
-    }
-
-    // Show app container if authenticated
-    showAppContainer();
-
-    // Initialize WebSocket
-    wsClient.connect();
-
     // State
     let currentPage = 'dashboard';
     let devices = [];
     let credentials = [];
     let lastComparisonReportId = null;
     let users = [];
+    let authStatus = null;
+
+    // Check auth and initialize app after all functions are defined
+    async function initializeApp() {
+        authStatus = await Auth.checkAuthRequired();
+
+        if (authStatus.auth_required) {
+            if (!Auth.isAuthenticated()) {
+                showLoginPage(authStatus.ad_enabled);
+                return;
+            }
+
+            // Check if password change is required
+            if (Auth.mustChangePassword()) {
+                showForcePasswordChangeModal();
+                return;
+            }
+        }
+
+        // Show app container if authenticated
+        showAppContainer();
+
+        // Initialize WebSocket
+        wsClient.connect();
+
+        // Navigate to dashboard
+        navigateTo('dashboard');
+    }
 
     // DOM Elements
     const navLinks = document.querySelectorAll('.nav-menu a[data-page]');
@@ -196,7 +202,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         errorDiv.style.display = 'none';
         button.disabled = true;
-        button.textContent = 'Logging in...';
+        button.textContent = I18n.t('common.loggingIn') || 'Logging in...';
 
         try {
             await Auth.login(username, password, useAD);
@@ -206,6 +212,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 showForcePasswordChangeModal();
             } else {
                 showAppContainer();
+                wsClient.connect();
                 navigateTo('dashboard');
             }
         } catch (error) {
@@ -213,7 +220,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             errorDiv.style.display = 'block';
         } finally {
             button.disabled = false;
-            button.textContent = 'Login';
+            button.textContent = I18n.t('login.loginButton') || 'Login';
         }
     }
 
@@ -248,12 +255,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         button.disabled = true;
-        button.textContent = 'Changing...';
+        button.textContent = I18n.t('common.changing') || 'Changing...';
 
         try {
             await Auth.changePassword(currentPassword, newPassword);
             document.getElementById('force-password-change-modal').style.display = 'none';
             showAppContainer();
+            wsClient.connect();
             navigateTo('dashboard');
             showToast(I18n.t('toast.passwordChanged') || 'Password changed successfully', 'success');
         } catch (error) {
@@ -261,7 +269,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             errorDiv.style.display = 'block';
         } finally {
             button.disabled = false;
-            button.textContent = 'Change Password';
+            button.textContent = I18n.t('users.changePassword') || 'Change Password';
         }
     }
 
@@ -306,7 +314,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 </td>
                 <td>
                     <span class="badge ${user.auth_type === 'ad' ? 'badge-warning' : 'badge-info'}">
-                        ${user.auth_type === 'ad' ? 'AD' : I18n.t('users.local') || 'Local'}
+                        ${user.auth_type === 'ad' ? I18n.t('users.ad') || 'AD' : I18n.t('users.local') || 'Local'}
                     </span>
                 </td>
                 <td>${user.email || '-'}</td>
@@ -620,18 +628,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!container) return;
 
         if (!referenceIp) {
-            container.innerHTML = '<p class="empty-state" style="padding: 1rem;">Select a reference device first</p>';
+            container.innerHTML = `<p class="empty-state" style="padding: 1rem;">${I18n.t('compare.selectReferenceFirst') || 'Select a reference device first'}</p>`;
             if (startBtn) startBtn.disabled = true;
-            if (countSpan) countSpan.textContent = '0 selected';
+            if (countSpan) countSpan.textContent = I18n.t('common.selected', { count: 0 }) || '0 selected';
             return;
         }
 
         const targetDevices = devices.filter(d => d.ip !== referenceIp);
 
         if (targetDevices.length === 0) {
-            container.innerHTML = '<p class="empty-state" style="padding: 1rem;">No other devices available for comparison</p>';
+            container.innerHTML = `<p class="empty-state" style="padding: 1rem;">${I18n.t('compare.noOtherDevices') || 'No other devices available for comparison'}</p>`;
             if (startBtn) startBtn.disabled = true;
-            if (countSpan) countSpan.textContent = '0 selected';
+            if (countSpan) countSpan.textContent = I18n.t('common.selected', { count: 0 }) || '0 selected';
             return;
         }
 
@@ -705,11 +713,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        setButtonLoading(button, true, 'Comparing...');
+        setButtonLoading(button, true, I18n.t('common.comparing') || 'Comparing...');
 
         try {
             await API.batchCompare(referenceIp, targetIps);
-            showToast('Comparison started', 'info');
+            showToast(I18n.t('toast.comparisonStarted') || 'Comparison started', 'info');
             showProgress('compare');
 
             // Hide complete section while comparison runs
@@ -782,7 +790,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const response = await API.getComparisonReport(reportId);
             renderReportDetails(response.report);
         } catch (error) {
-            showToast('Failed to load report details', 'error');
+            showToast(I18n.t('reports.failedToLoadDetails') || 'Failed to load report details', 'error');
         }
     };
 
@@ -796,10 +804,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <div class="card" style="margin-top: 1rem;">
                         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                             <span class="card-title">${r.target_ip}</span>
-                            <span class="badge badge-danger">Failed</span>
+                            <span class="badge badge-danger">${I18n.t('status.failed') || 'Failed'}</span>
                         </div>
                         <div style="padding: 0.75rem; color: var(--danger-color);">
-                            ${r.error || 'Unknown error'}
+                            ${r.error || I18n.t('common.unknownError') || 'Unknown error'}
                         </div>
                     </div>
                 `;
@@ -812,15 +820,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                         <span class="card-title">${r.target_hostname || r.target_ip}</span>
                         <span class="badge ${hasDifferences ? 'badge-warning' : 'badge-success'}">
-                            ${hasDifferences ? `${r.summary.lines_added + r.summary.lines_removed} differences` : 'Identical'}
+                            ${hasDifferences ? I18n.t('common.differences', { count: r.summary.lines_added + r.summary.lines_removed }) || `${r.summary.lines_added + r.summary.lines_removed} differences` : I18n.t('common.identical') || 'Identical'}
                         </span>
                     </div>
                     ${hasDifferences && r.summary ? `
                         <div style="padding: 0.75rem;">
-                            <p><strong>Lines added:</strong> ${r.summary.lines_added} | <strong>Lines removed:</strong> ${r.summary.lines_removed}</p>
+                            <p><strong>${I18n.t('compare.linesAdded') || 'Lines added:'}</strong> ${r.summary.lines_added} | <strong>${I18n.t('compare.linesRemoved') || 'Lines removed:'}</strong> ${r.summary.lines_removed}</p>
                             ${r.differences && r.differences.length > 0 ? `
                                 <details style="margin-top: 0.5rem;">
-                                    <summary style="cursor: pointer; color: var(--primary-color);">Show differences</summary>
+                                    <summary style="cursor: pointer; color: var(--primary-color);">${I18n.t('compare.showDifferences') || 'Show differences'}</summary>
                                     <div class="diff-viewer" style="margin-top: 0.5rem; max-height: 300px; overflow-y: auto;">
                                         ${r.differences.map(diff => `
                                             <div class="diff-line ${diff.type === 'added' ? 'diff-added' : ''}${diff.type === 'removed' ? 'diff-removed' : ''}">
@@ -1004,7 +1012,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const resultsContainer = document.getElementById('logs-results');
         if (resultsContainer) resultsContainer.style.display = 'none';
 
-        setButtonLoading(button, true, 'Collecting...');
+        setButtonLoading(button, true, I18n.t('common.collecting') || 'Collecting...');
 
         try {
             const response = await API.collectLogs(deviceIps, credentialId);
@@ -1070,7 +1078,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         container.style.display = 'block';
 
         if (!results || results.length === 0) {
-            listContainer.innerHTML = '<p class="empty-state">No logs collected</p>';
+            listContainer.innerHTML = `<p class="empty-state">${I18n.t('logs.noLogs') || 'No logs collected'}</p>`;
             return;
         }
 
@@ -1079,10 +1087,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <table>
                     <thead>
                         <tr>
-                            <th>Device</th>
-                            <th>Status</th>
-                            <th>Size</th>
-                            <th>Actions</th>
+                            <th>${I18n.t('logs.device') || 'Device'}</th>
+                            <th>${I18n.t('devices.status') || 'Status'}</th>
+                            <th>${I18n.t('logs.size') || 'Size'}</th>
+                            <th>${I18n.t('common.actions') || 'Actions'}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1091,14 +1099,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 <td>${r.hostname} (${r.device_ip})</td>
                                 <td>
                                     <span class="badge ${r.success ? 'badge-success' : 'badge-danger'}">
-                                        ${r.success ? 'Success' : 'Failed'}
+                                        ${r.success ? I18n.t('logs.success') || 'Success' : I18n.t('logs.failed') || 'Failed'}
                                     </span>
                                 </td>
-                                <td>${r.success ? formatBytes(r.log_size) : (r.error || 'Error')}</td>
+                                <td>${r.success ? formatBytes(r.log_size) : (r.error || I18n.t('common.error') || 'Error')}</td>
                                 <td>
                                     ${r.success ? `
                                         <button class="btn btn-sm btn-primary" onclick="viewDeviceLogs('${r.device_ip}')">
-                                            View Logs
+                                            ${I18n.t('logs.viewLogs') || 'View Logs'}
                                         </button>
                                     ` : ''}
                                 </td>
@@ -1135,7 +1143,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (modal && titleSpan && contentPre) {
             titleSpan.textContent = `${logData.hostname} (${logData.device_ip}) - Logs`;
-            contentPre.textContent = logData.logs || 'No logs available';
+            contentPre.textContent = logData.logs || I18n.t('common.noLogsAvailable') || 'No logs available';
             openModal('config-viewer-modal');
         }
     }
@@ -1274,7 +1282,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         const button = document.getElementById('collect-page-btn');
-        setButtonLoading(button, true, 'Collecting...');
+        setButtonLoading(button, true, I18n.t('common.collecting') || 'Collecting...');
 
         // Hide previous progress
         const progressContainer = document.getElementById('collect-page-device-progress');
@@ -1356,7 +1364,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             button.disabled = true;
             button.style.opacity = '0.6';
             button.dataset.originalText = button.innerHTML;
-            button.innerHTML = `<span class="spinner"></span> ${originalText || 'Loading...'}`;
+            button.innerHTML = `<span class="spinner"></span> ${originalText || I18n.t('common.loading') || 'Loading...'}`;
         } else {
             button.disabled = false;
             button.style.opacity = '1';
@@ -1404,7 +1412,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <tr>
                     <td colspan="7" class="empty-state">
                         <div class="empty-state-icon">&#128268;</div>
-                        <p>No devices registered yet</p>
+                        <p>${I18n.t('devices.noDevices') || 'No devices registered yet'}</p>
                     </td>
                 </tr>
             `;
@@ -1427,11 +1435,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td>${device.model || '-'}</td>
                 <td>
                     <div class="action-buttons">
-                        <button class="btn btn-sm btn-secondary" onclick="viewDeviceConfig('${device.ip}')">
-                            Config
+                        <button class="btn btn-sm btn-secondary" onclick="viewDeviceConfig('${device.ip}')" title="${I18n.t('common.view') || 'View'}">
+                            ${I18n.t('common.config') || 'Config'}
                         </button>
-                        <button class="btn btn-sm btn-danger" onclick="deleteDevice('${device.ip}')">
-                            Delete
+                        <button class="btn btn-sm btn-primary" onclick="downloadDeviceConfig('${device.ip}')" title="${I18n.t('devices.downloadConfig') || 'Download'}">
+                            &#8681;
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteDevice('${device.ip}')" title="${I18n.t('common.delete') || 'Delete'}">
+                            &#128465;
                         </button>
                     </div>
                 </td>
@@ -1576,7 +1587,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         e.preventDefault();
         const ipRange = document.getElementById('scan-ip-range').value;
         const button = document.getElementById('scan-btn');
-        setButtonLoading(button, true, 'Scanning...');
+        setButtonLoading(button, true, I18n.t('common.scanning') || 'Scanning...');
 
         // Hide previous results
         document.getElementById('scan-results').style.display = 'none';
@@ -1663,7 +1674,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         const button = document.getElementById('add-scanned-devices-btn');
-        setButtonLoading(button, true, 'Adding...');
+        setButtonLoading(button, true, I18n.t('common.adding') || 'Adding...');
 
         try {
             const result = await API.addScannedDevices(devices);
@@ -1688,7 +1699,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const credentialId = document.getElementById('discover-credential').value || null;
         const ipRange = document.getElementById('discover-ip-range').value || null;
         const button = document.getElementById('discover-btn');
-        setButtonLoading(button, true, 'Discovering...');
+        setButtonLoading(button, true, I18n.t('common.discovering') || 'Discovering...');
 
         // Clear previous results
         document.getElementById('discover-results').style.display = 'none';
@@ -1786,7 +1797,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('collect-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const button = e.target.querySelector('button[type="submit"]');
-        setButtonLoading(button, true, 'Collecting...');
+        setButtonLoading(button, true, I18n.t('common.collecting') || 'Collecting...');
 
         const selectedDevices = Array.from(document.querySelectorAll('.device-checkbox:checked'))
             .map(cb => cb.value);
@@ -1797,7 +1808,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 selectedDevices.length ? selectedDevices : null,
                 credentialId
             );
-            showToast('Collection started', 'info');
+            showToast(I18n.t('toast.collectionStarted') || 'Collection started', 'info');
             showProgress('collect');
         } catch (error) {
             showToast(error.message, 'error');
@@ -1889,7 +1900,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const selectedDeviceIps = Array.from(checkboxes).map(cb => cb.value);
 
         if (selectedDeviceIps.length === 0) {
-            showToast('Please select at least one device to search', 'warning');
+            showToast(I18n.t('toast.selectAtLeastOneDevice') || 'Please select at least one device', 'warning');
             return;
         }
 
@@ -1901,7 +1912,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const deviceProgressContainer = document.getElementById('mac-device-progress');
         if (deviceProgressContainer) deviceProgressContainer.style.display = 'none';
 
-        setButtonLoading(button, true, 'Searching...');
+        setButtonLoading(button, true, I18n.t('common.searching') || 'Searching...');
 
         try {
             const response = await API.searchMac(macAddress, selectedDeviceIps, credentialId);
@@ -2070,7 +2081,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Check device status
     window.checkDevicesStatus = async function() {
         const button = document.querySelector('button[onclick="checkDevicesStatus()"]');
-        setButtonLoading(button, true, 'Checking...');
+        setButtonLoading(button, true, I18n.t('common.checking') || 'Checking...');
 
         try {
             await API.checkDevicesStatus();
@@ -2091,16 +2102,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateBulkDeleteButton();
     };
 
-    // Update bulk delete button visibility
+    // Update bulk delete and download button visibility
     window.updateBulkDeleteButton = function() {
         const selectedCheckboxes = document.querySelectorAll('.device-checkbox:checked');
         const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
+        const bulkDownloadBtn = document.getElementById('bulk-download-btn');
         const selectedCount = document.getElementById('selected-count');
+        const downloadCount = document.getElementById('download-count');
+
+        const count = selectedCheckboxes.length;
 
         if (bulkDeleteBtn && selectedCount) {
-            const count = selectedCheckboxes.length;
             selectedCount.textContent = count;
             bulkDeleteBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+        }
+
+        if (bulkDownloadBtn && downloadCount) {
+            downloadCount.textContent = count;
+            bulkDownloadBtn.style.display = count > 0 ? 'inline-flex' : 'none';
         }
 
         // Update select-all checkbox state
@@ -2118,7 +2137,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const selectedIps = Array.from(selectedCheckboxes).map(cb => cb.value);
 
         if (selectedIps.length === 0) {
-            showToast('No devices selected', 'warning');
+            showToast(I18n.t('toast.noDevicesSelected') || 'No devices selected', 'warning');
             return;
         }
 
@@ -2133,6 +2152,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         } catch (error) {
             showToast(error.message, 'error');
         }
+    };
+
+    window.bulkDownloadConfigs = async function() {
+        const selectedCheckboxes = document.querySelectorAll('.device-checkbox:checked');
+        const selectedIps = Array.from(selectedCheckboxes).map(cb => cb.value);
+
+        if (selectedIps.length === 0) {
+            showToast(I18n.t('toast.noDevicesSelected') || 'No devices selected', 'warning');
+            return;
+        }
+
+        try {
+            await API.downloadConfigsBulk(selectedIps);
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+    };
+
+    window.downloadDeviceConfig = function(ip) {
+        API.downloadConfig(ip);
     };
 
     // Set default credential
@@ -2429,10 +2468,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function updateBulkDeleteButtonFromSelection(count) {
         const btn = document.getElementById('bulk-delete-btn');
+        const downloadBtn = document.getElementById('bulk-download-btn');
         const countSpan = document.getElementById('selected-count');
+        const downloadCountSpan = document.getElementById('download-count');
         if (btn && countSpan) {
             countSpan.textContent = count;
             btn.style.display = count > 0 ? 'inline-flex' : 'none';
+        }
+        if (downloadBtn && downloadCountSpan) {
+            downloadCountSpan.textContent = count;
+            downloadBtn.style.display = count > 0 ? 'inline-flex' : 'none';
         }
     }
 
@@ -2559,7 +2604,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         <button class="btn btn-sm btn-danger" onclick="deleteGroup('${group.id}')">Delete</button>
                     </div>
                 </div>
-                <p class="group-description">${escapeHtml(group.description) || 'No description'}</p>
+                <p class="group-description">${escapeHtml(group.description) || I18n.t('groups.noDescription') || 'No description'}</p>
                 <div class="group-stats">
                     <span class="badge badge-info">${group.device_count} device${group.device_count !== 1 ? 's' : ''}</span>
                 </div>
@@ -2584,8 +2629,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('group-name').value = '';
         document.getElementById('group-description').value = '';
         document.getElementById('group-color').value = '#3b82f6';
-        document.getElementById('group-modal-title').textContent = 'Create Group';
-        document.getElementById('group-submit-btn').textContent = 'Create Group';
+        document.getElementById('group-modal-title').textContent = I18n.t('groups.createGroup') || 'Create Group';
+        document.getElementById('group-submit-btn').textContent = I18n.t('groups.createGroup') || 'Create Group';
 
         // Render device selection
         renderGroupDeviceSelection(preSelectedDevices);
@@ -2605,8 +2650,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('group-name').value = group.name;
             document.getElementById('group-description').value = group.description || '';
             document.getElementById('group-color').value = group.color || '#3b82f6';
-            document.getElementById('group-modal-title').textContent = 'Edit Group';
-            document.getElementById('group-submit-btn').textContent = 'Save Changes';
+            document.getElementById('group-modal-title').textContent = I18n.t('groups.editGroup') || 'Edit Group';
+            document.getElementById('group-submit-btn').textContent = I18n.t('groups.saveChanges') || 'Save Changes';
 
             // Render device selection with pre-selected devices
             renderGroupDeviceSelection(group.device_ips);
@@ -2616,7 +2661,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             document.getElementById('group-modal').classList.add('active');
         } catch (error) {
-            showToast('Failed to load group: ' + error.message, 'error');
+            showToast(I18n.t('toast.error.loadGroup', { message: error.message }) || 'Failed to load group: ' + error.message, 'error');
         }
     };
 
@@ -2625,8 +2670,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const countSpan = document.getElementById('group-device-count');
 
         if (devices.length === 0) {
-            container.innerHTML = '<p class="empty-state">No devices available</p>';
-            countSpan.textContent = '0 selected';
+            container.innerHTML = `<p class="empty-state">${I18n.t('collect.noDevices') || 'No devices available'}</p>`;
+            countSpan.textContent = I18n.t('common.selected', { count: 0 }) || '0 selected';
             return;
         }
 
@@ -2684,14 +2729,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         const color = colorInput.value;
 
         const colorNames = {
-            '#3b82f6': 'Blue',
-            '#22c55e': 'Green',
-            '#ef4444': 'Red',
-            '#f59e0b': 'Amber',
-            '#8b5cf6': 'Purple',
-            '#ec4899': 'Pink',
-            '#06b6d4': 'Cyan',
-            '#6b7280': 'Gray'
+            '#3b82f6': I18n.t('groups.colors.blue') || 'Blue',
+            '#22c55e': I18n.t('groups.colors.green') || 'Green',
+            '#ef4444': I18n.t('groups.colors.red') || 'Red',
+            '#f59e0b': I18n.t('groups.colors.amber') || 'Amber',
+            '#8b5cf6': I18n.t('groups.colors.purple') || 'Purple',
+            '#ec4899': I18n.t('groups.colors.pink') || 'Pink',
+            '#06b6d4': I18n.t('groups.colors.cyan') || 'Cyan',
+            '#6b7280': I18n.t('groups.colors.gray') || 'Gray'
         };
 
         preview.textContent = colorNames[color.toLowerCase()] || color;
@@ -2793,6 +2838,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize device page tabs
     initDevicePageTabs();
 
-    // Initial load
-    navigateTo('dashboard');
+    // Initial load - call initializeApp which handles auth check
+    initializeApp();
 });

@@ -152,6 +152,9 @@
                 <div class="page-header">
                     <h2 data-i18n="devices.title">Devices</h2>
                     <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-primary" id="bulk-download-btn" onclick="bulkDownloadConfigs()" style="display: none;">
+                            &#8681; <span data-i18n="devices.downloadSelected">Download Configs</span> (<span id="download-count">0</span>)
+                        </button>
                         <button class="btn btn-danger" id="bulk-delete-btn" onclick="bulkDeleteDevices()" style="display: none;">
                             &#128465; <span data-i18n="devices.deleteSelected">Delete Selected</span> (<span id="selected-count">0</span>)
                         </button>
@@ -305,7 +308,7 @@
                         <div class="form-group">
                             <label for="discover-ip-range" data-i18n="scan.lldpDiscovery.ipRangeOptional">IP Range (optional)</label>
                             <input type="text" id="discover-ip-range" class="form-control"
-                                   placeholder="192.168.1.0/24 or 192.168.1.1-50 (leave empty to use known devices)">
+                                   data-i18n-placeholder="scan.lldpDiscovery.ipRangePlaceholder" placeholder="192.168.1.0/24 or 192.168.1.1-50 (leave empty to use known devices)">
                             <small style="color: var(--text-muted);" data-i18n="scan.lldpDiscovery.ipRangeHelper">
                                 If provided, scans the range first, detects vendors, then discovers neighbors
                             </small>
@@ -873,7 +876,7 @@
     <div id="config-viewer-modal" class="modal-overlay">
         <div class="modal" style="max-width: 900px;">
             <div class="modal-header">
-                <h3>Configuration: <span id="config-device-ip"></span></h3>
+                <h3><span data-i18n="common.configuration">Configuration</span>: <span id="config-device-ip"></span></h3>
                 <button class="modal-close" onclick="closeModal('config-viewer-modal')">&times;</button>
             </div>
             <div class="modal-body">
@@ -945,7 +948,7 @@
                         <input type="password" id="user-password" class="form-control" required minlength="8">
                     </div>
                     <div class="form-group">
-                        <label for="user-email" data-i18n="users.email">Email (optional)</label>
+                        <label for="user-email" data-i18n="common.emailOptional">Email (optional)</label>
                         <input type="email" id="user-email" class="form-control">
                     </div>
                     <div class="form-group">

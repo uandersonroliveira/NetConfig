@@ -132,10 +132,12 @@ class MacFinder:
         return fnmatch.fnmatch(mac_flat, pattern_flat)
 
     def search_mac(self, mac_address: str,
-                   progress_callback: Optional[Callable[[int, int, str], None]] = None
+                   progress_callback: Optional[Callable[[int, int, str], None]] = None,
+                   devices: Optional[List[Device]] = None,
+                   credential = None
                    ) -> List[MacSearchResult]:
         """
-        Search for a MAC address across all devices.
+        Search for a MAC address across devices.
         Supports wildcard patterns with * and ?.
 
         Args:
@@ -143,6 +145,8 @@ class MacFinder:
                         Wildcards: * matches any sequence, ? matches single char
                         Examples: "00:11:22:*", "00:11:??:33:*", "0011*"
             progress_callback: Optional callback(current, total, device_ip)
+            devices: Optional list of devices to search (if None, searches all devices)
+            credential: Optional credential to use for all devices
 
         Returns:
             List of MacSearchResult where the MAC was found
@@ -155,7 +159,10 @@ class MacFinder:
                 return []
             pattern = normalized_mac
 
-        devices = self.storage.list_devices()
+        # Use provided devices or get all devices from storage
+        if devices is None:
+            devices = self.storage.list_devices()
+
         results = []
         total = len(devices)
         current = 0
@@ -164,15 +171,21 @@ class MacFinder:
 
         def search_device(device: Device) -> List[MacSearchResult]:
             device_results = []
-            cred_id = device.credential_id or (default_cred.id if default_cred else None)
-            if not cred_id:
-                return device_results
 
-            cred = self.storage.get_credential(cred_id)
+            # Use provided credential, device credential, or default credential
+            if credential:
+                cred = credential
+                cred_id = credential.id
+            else:
+                cred_id = device.credential_id or (default_cred.id if default_cred else None)
+                if not cred_id:
+                    return device_results
+                cred = self.storage.get_credential(cred_id)
+
             if not cred:
                 return device_results
 
-            password = self.storage.get_decrypted_password(cred_id)
+            password = self.storage.get_decrypted_password(cred.id)
 
             try:
                 if device.vendor == DeviceVendor.UNKNOWN:
