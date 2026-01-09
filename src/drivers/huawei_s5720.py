@@ -287,7 +287,14 @@ class HuaweiS5720Driver(BaseDriver):
         return []
 
     def get_poe_status(self) -> Dict[str, Any]:
-        """Get PoE status including budget, used, and per-port details."""
+        """Get PoE status including budget, used, and per-port details.
+
+        Huawei PoE commands:
+        - display poe information: Shows total budget and consumption (values in mW)
+        - display poe power slot <slot>: Shows per-port PoE status
+
+        Note: All Huawei PoE values are in milliwatts (mW), must divide by 1000 for watts.
+        """
         result = {
             'supported': False,
             'total_budget_watts': 0,
@@ -297,39 +304,64 @@ class HuaweiS5720Driver(BaseDriver):
         }
 
         try:
-            # Get PoE power summary
-            power_output = self.send_command("display poe power-state")
+            # Get PoE information (total budget and consumption)
+            # Output format:
+            # PSE Information of slot 0:
+            #  POE Power Supply(mW)       : 380000
+            #  Total Power Consumption(mW): 8216
+            poe_info = self.send_command("display poe information")
 
-            # Parse total budget and used power
-            budget_match = re.search(r'(?:Total|Maximum)\s+Power[:\s]+(\d+\.?\d*)\s*W', power_output, re.IGNORECASE)
-            used_match = re.search(r'(?:Consuming|Used|Current)\s+Power[:\s]+(\d+\.?\d*)\s*W', power_output, re.IGNORECASE)
+            # Parse total budget (POE Power Supply) - values are in mW
+            budget_match = re.search(r'POE\s+Power\s+Supply\s*\(mW\)\s*:\s*(\d+)', poe_info, re.IGNORECASE)
+            if not budget_match:
+                # Try alternative format
+                budget_match = re.search(r'User\s+Set\s+Max\s+Power\s*\(mW\)\s*:\s*(\d+)', poe_info, re.IGNORECASE)
+
+            # Parse total consumption - values are in mW
+            used_match = re.search(r'Total\s+Power\s+Consumption\s*\(mW\)\s*:\s*(\d+)', poe_info, re.IGNORECASE)
 
             if budget_match:
                 result['supported'] = True
-                result['total_budget_watts'] = float(budget_match.group(1))
+                # Convert from mW to W
+                result['total_budget_watts'] = float(budget_match.group(1)) / 1000
             if used_match:
-                result['used_watts'] = float(used_match.group(1))
+                # Convert from mW to W
+                result['used_watts'] = float(used_match.group(1)) / 1000
 
             if result['total_budget_watts'] > 0:
                 result['utilization_percent'] = (result['used_watts'] / result['total_budget_watts']) * 100
 
             # Try to get per-port PoE status
+            # Command: display poe power slot 0
+            # Output format:
+            # PortName             Class REFPW(mW) USMPW(mW)  CURPW(mW)  PKPW(mW)   AVGPW(mW)
+            # GigabitEthernet0/0/1 -     -         15400      0          0          0
+            # GigabitEthernet0/0/2 2     7000      15400      3710       3816       3487
             try:
-                port_output = self.send_command("display poe interface")
+                port_output = self.send_command("display poe power slot 0")
                 port_lines = port_output.strip().split('\n')
 
                 for line in port_lines:
-                    # Match interface PoE lines
+                    # Match per-port PoE lines
+                    # Format: PortName Class REFPW USMPW CURPW PKPW AVGPW
                     match = re.match(
-                        r'(GE|GigabitEthernet|Eth)\S*\s+(enabled|disabled|on|off)\s+.*?(\d+\.?\d*)\s*W',
+                        r'(GigabitEthernet|GE|Ethernet)\S+\s+'  # Port name
+                        r'(\d+|-)\s+'                           # Class (number or -)
+                        r'(\d+|-)\s+'                           # REFPW (reference power)
+                        r'(\d+)\s+'                             # USMPW (user set max power)
+                        r'(\d+)\s+'                             # CURPW (current power)
+                        r'(\d+)\s+'                             # PKPW (peak power)
+                        r'(\d+)',                               # AVGPW (average power)
                         line.strip(), re.IGNORECASE
                     )
                     if match:
+                        current_power_mw = int(match.group(5))
+                        max_power_mw = int(match.group(4))
                         port_info = {
-                            'interface': match.group(1),
-                            'status': 'on' if match.group(2).lower() in ['enabled', 'on'] else 'off',
-                            'power_watts': float(match.group(3)) if match.group(3) else 0,
-                            'max_watts': 30.0,
+                            'interface': match.group(0).split()[0],  # Full interface name
+                            'status': 'on' if current_power_mw > 0 else 'off',
+                            'power_watts': current_power_mw / 1000,  # Convert mW to W
+                            'max_watts': max_power_mw / 1000,        # Convert mW to W
                             'device': ''
                         }
                         result['ports'].append(port_info)
