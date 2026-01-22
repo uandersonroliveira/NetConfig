@@ -3,7 +3,7 @@
 from typing import List
 from fastapi import APIRouter, HTTPException, Depends
 
-from ..models.user import User, UserCreate, UserUpdate, UserResponse, PasswordChange
+from ..models.user import User, UserRole, AuthType, UserCreate, UserUpdate, UserResponse, PasswordChange
 from ..storage.json_storage import JsonStorage
 from ..utils.auth import hash_password, verify_password
 from .auth import get_current_user, require_admin, user_to_response
@@ -36,7 +36,7 @@ async def create_user(
         password_hash=hash_password(user_data.password),
         role=user_data.role,
         email=user_data.email,
-        auth_type="local",
+        auth_type=AuthType.LOCAL,
         is_active=True,
         must_change_password=False
     )
@@ -69,7 +69,7 @@ async def update_user(
         raise HTTPException(status_code=404, detail="User not found")
 
     # Check if trying to demote the last admin
-    if updates.role == "readonly" and user.role == "admin":
+    if updates.role == UserRole.READONLY and user.role == UserRole.ADMIN:
         admin_count = storage.count_admin_users()
         if admin_count <= 1:
             raise HTTPException(
@@ -78,7 +78,7 @@ async def update_user(
             )
 
     # Check if trying to deactivate the last admin
-    if updates.is_active is False and user.role == "admin" and user.is_active:
+    if updates.is_active is False and user.role == UserRole.ADMIN and user.is_active:
         admin_count = storage.count_admin_users()
         if admin_count <= 1:
             raise HTTPException(
@@ -123,7 +123,7 @@ async def delete_user(
         )
 
     # Cannot delete the last admin
-    if user.role == "admin":
+    if user.role == UserRole.ADMIN:
         admin_count = storage.count_admin_users()
         if admin_count <= 1:
             raise HTTPException(
@@ -147,21 +147,21 @@ async def change_password(
         raise HTTPException(status_code=404, detail="User not found")
 
     # Check if AD user
-    if user.auth_type == "ad":
+    if user.auth_type == AuthType.AD:
         raise HTTPException(
             status_code=400,
             detail="Cannot change password for Active Directory users"
         )
 
     # Non-admins can only change their own password
-    if current_user.role != "admin" and current_user.id != user_id:
+    if current_user.role != UserRole.ADMIN and current_user.id != user_id:
         raise HTTPException(
             status_code=403,
             detail="You can only change your own password"
         )
 
     # Non-admins must provide current password
-    if current_user.role != "admin":
+    if current_user.role != UserRole.ADMIN:
         if not passwords.current_password:
             raise HTTPException(
                 status_code=400,
@@ -199,7 +199,7 @@ async def toggle_user_active(
         )
 
     # Cannot deactivate the last admin
-    if user.role == "admin" and user.is_active:
+    if user.role == UserRole.ADMIN and user.is_active:
         admin_count = storage.count_admin_users()
         if admin_count <= 1:
             raise HTTPException(

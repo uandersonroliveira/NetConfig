@@ -67,7 +67,8 @@
     "differences": "{{count}} differences",
     "configuration": "Configuration",
     "noLogsAvailable": "No logs available",
-    "emailOptional": "Email (optional)"
+    "emailOptional": "Email (optional)",
+    "clearFilters": "Clear Filters"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -99,6 +100,14 @@
     "portUsage": "Ports",
     "noPoe": "N/A",
     "utilization": "utilization",
+    "filterPlaceholder": "Filter by hostname, IP, vendor, or model...",
+    "allGroups": "All Groups",
+    "allStatus": "All Status",
+    "unknown": "Unknown",
+    "showing": "Showing",
+    "of": "of",
+    "devicesLabel": "devices",
+    "noMatchingDevices": "No devices match the current filters",
     "addDevicesModal": {
       "title": "Add Devices",
       "ipAddresses": "IP Addresses",
@@ -147,7 +156,7 @@
     "discoveredDevices": "Discovered Devices",
     "selectToAdd": "Select devices to add to your inventory:",
     "responseTime": "Response Time",
-    "addSelected": "Add Selected ({{count}})",
+    "addSelected": "Add Selected",
     "clearResults": "Clear Results",
     "alreadyExists": "Already exists",
     "new": "New",
@@ -370,6 +379,8 @@
     "scanComplete": "Scan complete: {{count}} devices found",
     "collectionStarted": "Collection started",
     "collectionComplete": "Collection complete: {{success}}/{{total}} successful",
+    "autoCollectionStarted": "Configuration collection started for new devices",
+    "autoCollectionFailed": "Auto-collection failed, please collect manually",
     "logCollectionStarted": "Log collection started",
     "logCollectionComplete": "Log collection complete: {{success}}/{{total}} successful",
     "statusCheckStarted": "Status check started",

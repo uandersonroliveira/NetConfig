@@ -1,9 +1,28 @@
 """User and Authentication models for NetConfig."""
 
 from datetime import datetime
+from enum import Enum
 from typing import Optional, Literal, List
 from pydantic import BaseModel, Field
 import uuid
+
+
+class UserRole(str, Enum):
+    """User role enum for access control."""
+    ADMIN = "admin"
+    READONLY = "readonly"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class AuthType(str, Enum):
+    """Authentication type enum."""
+    LOCAL = "local"
+    AD = "ad"
+
+    def __str__(self) -> str:
+        return self.value
 
 
 class User(BaseModel):
@@ -11,8 +30,8 @@ class User(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     username: str
     password_hash: Optional[str] = None  # None for AD users
-    role: Literal["admin", "readonly"] = "readonly"
-    auth_type: Literal["local", "ad"] = "local"
+    role: UserRole = UserRole.READONLY
+    auth_type: AuthType = AuthType.LOCAL
     email: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.now)
     last_login: Optional[datetime] = None
@@ -24,14 +43,14 @@ class UserCreate(BaseModel):
     """Model for creating a new user."""
     username: str
     password: str
-    role: Literal["admin", "readonly"] = "readonly"
+    role: UserRole = UserRole.READONLY
     email: Optional[str] = None
 
 
 class UserUpdate(BaseModel):
     """Model for updating a user."""
     username: Optional[str] = None
-    role: Optional[Literal["admin", "readonly"]] = None
+    role: Optional[UserRole] = None
     email: Optional[str] = None
     is_active: Optional[bool] = None
 

@@ -1,8 +1,10 @@
 """Authentication utilities for JWT and password handling."""
 
+import os
+import stat
 import secrets
 import string
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from pathlib import Path
 
@@ -15,6 +17,26 @@ JWT_ALGORITHM = "HS256"
 DEFAULT_TOKEN_EXPIRE_MINUTES = 480  # 8 hours
 
 
+def _restrict_file_permissions(filepath: Path) -> None:
+    """Restrict file permissions to owner only (cross-platform)."""
+    try:
+        if os.name == 'nt':
+            # Windows: Use icacls to restrict permissions
+            import subprocess
+            # Remove inherited permissions and grant only current user full control
+            subprocess.run(
+                ['icacls', str(filepath), '/inheritance:r', '/grant:r', f'{os.getlogin()}:F'],
+                capture_output=True,
+                check=False
+            )
+        else:
+            # Unix: Set permissions to 600 (owner read/write only)
+            os.chmod(filepath, stat.S_IRUSR | stat.S_IWUSR)
+    except Exception:
+        # Log but don't fail if permission restriction fails
+        pass
+
+
 def _get_jwt_secret() -> str:
     """Get or create JWT secret key."""
     if JWT_SECRET_KEY_FILE.exists():
@@ -24,6 +46,10 @@ def _get_jwt_secret() -> str:
     secret = secrets.token_urlsafe(64)
     JWT_SECRET_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
     JWT_SECRET_KEY_FILE.write_text(secret)
+
+    # Restrict file permissions to owner only
+    _restrict_file_permissions(JWT_SECRET_KEY_FILE)
+
     return secret
 
 
@@ -57,15 +83,16 @@ def create_access_token(
     if expires_minutes is None:
         expires_minutes = DEFAULT_TOKEN_EXPIRE_MINUTES
 
-    expire = datetime.utcnow() + timedelta(minutes=expires_minutes)
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(minutes=expires_minutes)
     expires_in = expires_minutes * 60  # Convert to seconds
 
     payload = {
         "sub": user_id,
         "username": username,
-        "role": role,
+        "role": str(role),  # Ensure enum is converted to string
         "exp": expire,
-        "iat": datetime.utcnow()
+        "iat": now
     }
 
     secret = _get_jwt_secret()
@@ -124,7 +151,7 @@ def is_token_expiring_soon(token: str, threshold_minutes: int = 30) -> bool:
     if not exp_timestamp:
         return True
 
-    exp_datetime = datetime.utcfromtimestamp(exp_timestamp)
-    threshold = datetime.utcnow() + timedelta(minutes=threshold_minutes)
+    exp_datetime = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
+    threshold = datetime.now(timezone.utc) + timedelta(minutes=threshold_minutes)
 
     return exp_datetime <= threshold

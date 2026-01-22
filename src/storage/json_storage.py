@@ -7,7 +7,7 @@ from typing import List, Optional, Dict, Any
 from threading import Lock
 from ..models.device import Device, DeviceStatus, DeviceVendor, DeviceGroup
 from ..models.config import Credential, ConfigSnapshot
-from ..models.user import User, AuthSettings, ADSettings
+from ..models.user import User, UserRole, AuthSettings, ADSettings
 from ..utils.crypto import encrypt_password, decrypt_password
 
 
@@ -43,19 +43,44 @@ class JsonStorage:
             default_settings = AuthSettings().model_dump()
             self._write_json(self.auth_settings_file, default_settings)
 
-    def _read_json(self, filepath: Path) -> Any:
-        """Read JSON file with locking."""
-        with self._lock:
+    def _read_json(self, filepath: Path, _locked: bool = False) -> Any:
+        """
+        Read JSON file with locking.
+
+        Args:
+            filepath: Path to the JSON file
+            _locked: Internal flag, True if lock is already held by caller
+        """
+        if _locked:
+            # Lock already held by caller
             if filepath.exists():
                 with open(filepath, 'r', encoding='utf-8') as f:
                     return json.load(f)
             return []
+        else:
+            with self._lock:
+                if filepath.exists():
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        return json.load(f)
+                return []
 
-    def _write_json(self, filepath: Path, data: Any) -> None:
-        """Write JSON file with locking."""
-        with self._lock:
+    def _write_json(self, filepath: Path, data: Any, _locked: bool = False) -> None:
+        """
+        Write JSON file with locking.
+
+        Args:
+            filepath: Path to the JSON file
+            data: Data to write
+            _locked: Internal flag, True if lock is already held by caller
+        """
+        if _locked:
+            # Lock already held by caller
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, default=str)
+        else:
+            with self._lock:
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, default=str)
 
     # Device operations
     def list_devices(self) -> List[Device]:
@@ -72,34 +97,36 @@ class JsonStorage:
         return None
 
     def save_device(self, device: Device) -> Device:
-        """Save or update a device."""
-        devices = self._read_json(self.devices_file)
+        """Save or update a device (atomic operation)."""
+        with self._lock:
+            devices = self._read_json(self.devices_file, _locked=True)
 
-        existing_idx = None
-        for i, d in enumerate(devices):
-            if d['ip'] == device.ip:
-                existing_idx = i
-                break
+            existing_idx = None
+            for i, d in enumerate(devices):
+                if d['ip'] == device.ip:
+                    existing_idx = i
+                    break
 
-        device_dict = device.model_dump()
-        if existing_idx is not None:
-            devices[existing_idx] = device_dict
-        else:
-            devices.append(device_dict)
+            device_dict = device.model_dump()
+            if existing_idx is not None:
+                devices[existing_idx] = device_dict
+            else:
+                devices.append(device_dict)
 
-        self._write_json(self.devices_file, devices)
-        return device
+            self._write_json(self.devices_file, devices, _locked=True)
+            return device
 
     def delete_device(self, ip: str) -> bool:
-        """Delete a device by IP."""
-        devices = self._read_json(self.devices_file)
-        initial_len = len(devices)
-        devices = [d for d in devices if d['ip'] != ip]
+        """Delete a device by IP (atomic operation)."""
+        with self._lock:
+            devices = self._read_json(self.devices_file, _locked=True)
+            initial_len = len(devices)
+            devices = [d for d in devices if d['ip'] != ip]
 
-        if len(devices) < initial_len:
-            self._write_json(self.devices_file, devices)
-            return True
-        return False
+            if len(devices) < initial_len:
+                self._write_json(self.devices_file, devices, _locked=True)
+                return True
+            return False
 
     def update_device_status(self, ip: str, status: DeviceStatus) -> None:
         """Update device status."""
@@ -132,51 +159,54 @@ class JsonStorage:
 
     def save_credential(self, username: str, password: str,
                        is_default: bool = False, description: str = None) -> Credential:
-        """Save a new credential."""
-        credentials = self._read_json(self.credentials_file)
+        """Save a new credential (atomic operation)."""
+        with self._lock:
+            credentials = self._read_json(self.credentials_file, _locked=True)
 
-        if is_default:
-            for cred in credentials:
-                cred['is_default'] = False
+            if is_default:
+                for cred in credentials:
+                    cred['is_default'] = False
 
-        new_cred = Credential(
-            id=str(uuid.uuid4()),
-            username=username,
-            encrypted_password=encrypt_password(password),
-            is_default=is_default,
-            description=description
-        )
+            new_cred = Credential(
+                id=str(uuid.uuid4()),
+                username=username,
+                encrypted_password=encrypt_password(password),
+                is_default=is_default,
+                description=description
+            )
 
-        credentials.append(new_cred.model_dump())
-        self._write_json(self.credentials_file, credentials)
-        return new_cred
+            credentials.append(new_cred.model_dump())
+            self._write_json(self.credentials_file, credentials, _locked=True)
+            return new_cred
 
     def delete_credential(self, credential_id: str) -> bool:
-        """Delete a credential by ID."""
-        credentials = self._read_json(self.credentials_file)
-        initial_len = len(credentials)
-        credentials = [c for c in credentials if c['id'] != credential_id]
+        """Delete a credential by ID (atomic operation)."""
+        with self._lock:
+            credentials = self._read_json(self.credentials_file, _locked=True)
+            initial_len = len(credentials)
+            credentials = [c for c in credentials if c['id'] != credential_id]
 
-        if len(credentials) < initial_len:
-            self._write_json(self.credentials_file, credentials)
-            return True
-        return False
+            if len(credentials) < initial_len:
+                self._write_json(self.credentials_file, credentials, _locked=True)
+                return True
+            return False
 
     def set_default_credential(self, credential_id: str) -> bool:
-        """Set a credential as default."""
-        credentials = self._read_json(self.credentials_file)
-        found = False
+        """Set a credential as default (atomic operation)."""
+        with self._lock:
+            credentials = self._read_json(self.credentials_file, _locked=True)
+            found = False
 
-        for cred in credentials:
-            if cred['id'] == credential_id:
-                cred['is_default'] = True
-                found = True
-            else:
-                cred['is_default'] = False
+            for cred in credentials:
+                if cred['id'] == credential_id:
+                    cred['is_default'] = True
+                    found = True
+                else:
+                    cred['is_default'] = False
 
-        if found:
-            self._write_json(self.credentials_file, credentials)
-        return found
+            if found:
+                self._write_json(self.credentials_file, credentials, _locked=True)
+            return found
 
     def get_decrypted_password(self, credential_id: str) -> Optional[str]:
         """Get decrypted password for a credential."""
@@ -273,36 +303,38 @@ class JsonStorage:
         return None
 
     def save_group(self, group: DeviceGroup) -> DeviceGroup:
-        """Save or update a device group."""
-        groups = self._read_json(self.groups_file)
+        """Save or update a device group (atomic operation)."""
+        with self._lock:
+            groups = self._read_json(self.groups_file, _locked=True)
 
-        existing_idx = None
-        for i, g in enumerate(groups):
-            if g['id'] == group.id:
-                existing_idx = i
-                break
+            existing_idx = None
+            for i, g in enumerate(groups):
+                if g['id'] == group.id:
+                    existing_idx = i
+                    break
 
-        group.updated_at = datetime.now()
-        group_dict = group.model_dump()
+            group.updated_at = datetime.now()
+            group_dict = group.model_dump()
 
-        if existing_idx is not None:
-            groups[existing_idx] = group_dict
-        else:
-            groups.append(group_dict)
+            if existing_idx is not None:
+                groups[existing_idx] = group_dict
+            else:
+                groups.append(group_dict)
 
-        self._write_json(self.groups_file, groups)
-        return group
+            self._write_json(self.groups_file, groups, _locked=True)
+            return group
 
     def delete_group(self, group_id: str) -> bool:
-        """Delete a device group by ID."""
-        groups = self._read_json(self.groups_file)
-        initial_len = len(groups)
-        groups = [g for g in groups if g['id'] != group_id]
+        """Delete a device group by ID (atomic operation)."""
+        with self._lock:
+            groups = self._read_json(self.groups_file, _locked=True)
+            initial_len = len(groups)
+            groups = [g for g in groups if g['id'] != group_id]
 
-        if len(groups) < initial_len:
-            self._write_json(self.groups_file, groups)
-            return True
-        return False
+            if len(groups) < initial_len:
+                self._write_json(self.groups_file, groups, _locked=True)
+                return True
+            return False
 
     def get_groups_for_device(self, device_ip: str) -> List[DeviceGroup]:
         """Get all groups that contain a specific device."""
@@ -360,40 +392,42 @@ class JsonStorage:
         return None
 
     def save_user(self, user: User) -> User:
-        """Save or update a user."""
-        users = self._read_json(self.users_file)
+        """Save or update a user (atomic operation)."""
+        with self._lock:
+            users = self._read_json(self.users_file, _locked=True)
 
-        existing_idx = None
-        for i, u in enumerate(users):
-            if u['id'] == user.id:
-                existing_idx = i
-                break
+            existing_idx = None
+            for i, u in enumerate(users):
+                if u['id'] == user.id:
+                    existing_idx = i
+                    break
 
-        user_dict = user.model_dump()
+            user_dict = user.model_dump()
 
-        if existing_idx is not None:
-            users[existing_idx] = user_dict
-        else:
-            users.append(user_dict)
+            if existing_idx is not None:
+                users[existing_idx] = user_dict
+            else:
+                users.append(user_dict)
 
-        self._write_json(self.users_file, users)
-        return user
+            self._write_json(self.users_file, users, _locked=True)
+            return user
 
     def delete_user(self, user_id: str) -> bool:
-        """Delete a user by ID."""
-        users = self._read_json(self.users_file)
-        initial_len = len(users)
-        users = [u for u in users if u['id'] != user_id]
+        """Delete a user by ID (atomic operation)."""
+        with self._lock:
+            users = self._read_json(self.users_file, _locked=True)
+            initial_len = len(users)
+            users = [u for u in users if u['id'] != user_id]
 
-        if len(users) < initial_len:
-            self._write_json(self.users_file, users)
-            return True
-        return False
+            if len(users) < initial_len:
+                self._write_json(self.users_file, users, _locked=True)
+                return True
+            return False
 
     def count_admin_users(self) -> int:
         """Count the number of admin users."""
         users = self.list_users()
-        return sum(1 for u in users if u.role == 'admin' and u.is_active)
+        return sum(1 for u in users if u.role == UserRole.ADMIN and u.is_active)
 
     def update_user_last_login(self, user_id: str) -> None:
         """Update user's last login timestamp."""
@@ -412,15 +446,16 @@ class JsonStorage:
         return AuthSettings(**data)
 
     def save_auth_settings(self, settings: AuthSettings) -> AuthSettings:
-        """Save authentication settings."""
-        # Encrypt AD bind password if present
-        settings_dict = settings.model_dump()
-        if settings.ad_settings.bind_password:
-            settings_dict['ad_settings']['bind_password'] = encrypt_password(
-                settings.ad_settings.bind_password
-            )
-        self._write_json(self.auth_settings_file, settings_dict)
-        return settings
+        """Save authentication settings (atomic operation)."""
+        with self._lock:
+            # Encrypt AD bind password if present
+            settings_dict = settings.model_dump()
+            if settings.ad_settings.bind_password:
+                settings_dict['ad_settings']['bind_password'] = encrypt_password(
+                    settings.ad_settings.bind_password
+                )
+            self._write_json(self.auth_settings_file, settings_dict, _locked=True)
+            return settings
 
     def get_decrypted_ad_bind_password(self) -> Optional[str]:
         """Get decrypted AD bind password."""

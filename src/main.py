@@ -1,13 +1,15 @@
 import json
 import ssl
 import os
+import ipaddress
+import datetime as dt
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import uvicorn
 
-from .api.routes import router as api_router
+from .api.routes import router as api_router, shutdown_executor
 from .api.websocket import manager
 
 app = FastAPI(
@@ -17,6 +19,12 @@ app = FastAPI(
 )
 
 app.include_router(api_router)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup resources on application shutdown."""
+    shutdown_executor()
 
 static_dir = Path(__file__).parent.parent / "static"
 if static_dir.exists():
@@ -70,7 +78,6 @@ def generate_self_signed_cert(cert_dir: Path) -> tuple[Path, Path]:
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import rsa
         from cryptography.hazmat.backends import default_backend
-        import datetime
         import socket
 
         # Generate private key
@@ -99,14 +106,15 @@ def generate_self_signed_cert(cert_dir: Path) -> tuple[Path, Path]:
             x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
         ])
 
+        now = dt.datetime.now(dt.timezone.utc)
         cert = (
             x509.CertificateBuilder()
             .subject_name(subject)
             .issuer_name(issuer)
             .public_key(key.public_key())
             .serial_number(x509.random_serial_number())
-            .not_valid_before(datetime.datetime.utcnow())
-            .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=365))
+            .not_valid_before(now)
+            .not_valid_after(now + dt.timedelta(days=365))
             .add_extension(san, critical=False)
             .sign(key, hashes.SHA256(), default_backend())
         )
@@ -150,8 +158,6 @@ def initialize_first_run():
 
 
 if __name__ == "__main__":
-    import ipaddress
-
     config = load_config()
     server_config = config.get("server", {})
 

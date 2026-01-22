@@ -1,9 +1,13 @@
 import asyncio
 import io
+import json as json_module
+import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from threading import Lock
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -11,6 +15,7 @@ from pydantic import BaseModel
 from ..models.device import Device, DeviceCreate, BulkDeviceCreate, DeviceVendor, DeviceStatus, DeviceGroup, DeviceGroupCreate, DeviceGroupUpdate
 from ..models.config import CredentialCreate, CredentialResponse, ConfigComparison
 from ..models.user import User
+from ..models.responses import OperationResult, BulkOperationResult
 from ..storage.json_storage import JsonStorage
 from ..core.scanner import Scanner
 from ..core.connector import Connector
@@ -18,9 +23,11 @@ from ..core.collector import Collector
 from ..core.analyzer import ConfigAnalyzer
 from ..core.comparator import ConfigComparator
 from ..core.mac_finder import MacFinder
-from ..utils.ip_utils import parse_bulk_ips, expand_ip_input
+from ..core.discovery import DiscoveryHelper, create_discovery_result
+from ..utils.ip_utils import parse_bulk_ips, expand_ip_input, validate_ip_strict
+from ..utils.error_utils import get_connection_error_message, safe_error_message
 from .websocket import manager
-from .auth import router as auth_router, require_write_access, get_current_user, get_optional_user
+from .auth import router as auth_router, require_write_access, require_admin, get_current_user, get_optional_user
 from .users import router as users_router
 
 router = APIRouter(prefix="/api")
@@ -35,7 +42,13 @@ collector = Collector(storage, connector)
 analyzer = ConfigAnalyzer()
 comparator = ConfigComparator()
 mac_finder = MacFinder(storage, connector)
+discovery_helper = DiscoveryHelper(storage, scanner, connector)
 executor = ThreadPoolExecutor(max_workers=4)
+
+
+def shutdown_executor() -> None:
+    """Gracefully shutdown the thread pool executor."""
+    executor.shutdown(wait=True, cancel_futures=False)
 
 
 # Request/Response Models
@@ -119,7 +132,7 @@ async def add_device(device: DeviceCreate, current_user: User = Depends(require_
 
 
 # IMPORTANT: Specific paths must come BEFORE parameterized paths like /devices/{ip}
-@router.post("/devices/bulk")
+@router.post("/devices/bulk", response_model=BulkOperationResult)
 async def add_devices_bulk(bulk: BulkDeviceCreate, current_user: User = Depends(require_write_access)):
     """
     Add multiple devices from comma/newline separated text.
@@ -146,14 +159,15 @@ async def add_devices_bulk(bulk: BulkDeviceCreate, current_user: User = Depends(
         storage.save_device(new_device)
         added.append(ip)
 
-    return {
-        "message": f"Added {len(added)} devices, skipped {len(skipped)} existing",
-        "added": added,
-        "skipped": skipped
-    }
+    return BulkOperationResult(
+        success=True,
+        message=f"Added {len(added)} devices, skipped {len(skipped)} existing",
+        added=added,
+        skipped=skipped
+    )
 
 
-@router.post("/devices/bulk-delete")
+@router.post("/devices/bulk-delete", response_model=BulkOperationResult)
 async def bulk_delete_devices(request: BulkDeleteRequest, current_user: User = Depends(require_write_access)):
     """Delete multiple devices at once."""
     if not request.device_ips:
@@ -168,11 +182,12 @@ async def bulk_delete_devices(request: BulkDeleteRequest, current_user: User = D
         else:
             not_found.append(ip)
 
-    return {
-        "message": f"Deleted {len(deleted)} devices",
-        "deleted": deleted,
-        "not_found": not_found
-    }
+    return BulkOperationResult(
+        success=True,
+        message=f"Deleted {len(deleted)} devices",
+        deleted=deleted,
+        not_found=not_found
+    )
 
 
 @router.post("/devices/check-status")
@@ -233,6 +248,7 @@ async def check_devices_status(request: StatusCheckRequest, background_tasks: Ba
 @router.get("/devices/{ip}")
 async def get_device(ip: str):
     """Get device by IP."""
+    ip = validate_ip_strict(ip)
     device = storage.get_device(ip)
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -242,6 +258,7 @@ async def get_device(ip: str):
 @router.put("/devices/{ip}")
 async def update_device(ip: str, updates: DeviceCreate, current_user: User = Depends(require_write_access)):
     """Update device information."""
+    ip = validate_ip_strict(ip)
     device = storage.get_device(ip)
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -262,6 +279,7 @@ async def update_device(ip: str, updates: DeviceCreate, current_user: User = Dep
 @router.delete("/devices/{ip}")
 async def delete_device(ip: str, current_user: User = Depends(require_write_access)):
     """Delete a device."""
+    ip = validate_ip_strict(ip)
     if storage.delete_device(ip):
         return {"message": "Device deleted"}
     raise HTTPException(status_code=404, detail="Device not found")
@@ -563,11 +581,12 @@ async def discover_neighbors(request: DiscoverRequest, background_tasks: Backgro
                            'lldp_count': lldp_count, 'cdp_count': cdp_count}
                 ))
             except Exception as e:
+                error_msg = get_connection_error_message(e, device.ip)
                 loop.run_until_complete(manager.broadcast_progress(
                     'discover', idx, total,
-                    f"Failed to discover on {device.ip}: {str(e)}",
+                    f"Failed to discover on {device.ip}: {error_msg}",
                     success=False,
-                    extra={'device_ip': device.ip, 'status': 'failed', 'error': str(e)}
+                    extra={'device_ip': device.ip, 'status': 'failed', 'error': error_msg}
                 ))
 
         # Add discovered neighbors as devices if requested
@@ -668,8 +687,78 @@ async def collect_configs(request: CollectRequest, background_tasks: BackgroundT
     return {"message": "Collection started", "devices_count": len(devices)}
 
 
-# Store collected logs in memory (per session)
-collected_logs = {}
+class ExpiringCache:
+    """
+    In-memory cache with automatic expiration of old entries.
+
+    Prevents unbounded memory growth for sensitive data like logs.
+    """
+
+    def __init__(self, max_age_seconds: int = 3600, max_entries: int = 100):
+        """
+        Initialize the cache.
+
+        Args:
+            max_age_seconds: Entries older than this are automatically removed (default 1 hour)
+            max_entries: Maximum number of entries to keep (default 100)
+        """
+        self._data: Dict[str, tuple] = {}  # key -> (value, timestamp)
+        self._lock = Lock()
+        self._max_age = max_age_seconds
+        self._max_entries = max_entries
+
+    def _cleanup(self) -> None:
+        """Remove expired entries (must be called with lock held)."""
+        now = time.time()
+        cutoff = now - self._max_age
+
+        # Remove expired entries
+        expired_keys = [k for k, (_, ts) in self._data.items() if ts < cutoff]
+        for key in expired_keys:
+            del self._data[key]
+
+        # If still over limit, remove oldest entries
+        if len(self._data) > self._max_entries:
+            sorted_items = sorted(self._data.items(), key=lambda x: x[1][1])
+            to_remove = len(self._data) - self._max_entries
+            for key, _ in sorted_items[:to_remove]:
+                del self._data[key]
+
+    def set(self, key: str, value: Any) -> None:
+        """Store a value in the cache."""
+        with self._lock:
+            self._cleanup()
+            self._data[key] = (value, time.time())
+
+    def get(self, key: str) -> Optional[Any]:
+        """Retrieve a value from the cache."""
+        with self._lock:
+            self._cleanup()
+            if key in self._data:
+                value, _ = self._data[key]
+                return value
+            return None
+
+    def __contains__(self, key: str) -> bool:
+        """Check if key exists in cache."""
+        with self._lock:
+            self._cleanup()
+            return key in self._data
+
+    def values(self) -> List[Any]:
+        """Get all non-expired values."""
+        with self._lock:
+            self._cleanup()
+            return [value for value, _ in self._data.values()]
+
+    def clear(self) -> None:
+        """Clear all entries from the cache."""
+        with self._lock:
+            self._data.clear()
+
+
+# Store collected logs in memory with automatic cleanup (1 hour expiration, max 100 entries)
+collected_logs = ExpiringCache(max_age_seconds=3600, max_entries=100)
 
 
 @router.post("/logs/collect")
@@ -727,14 +816,14 @@ async def collect_logs(request: LogCollectRequest, background_tasks: BackgroundT
 
                 try:
                     logs = driver.get_logs()
-                    collected_logs[device_ip] = {
+                    collected_logs.set(device_ip, {
                         'device_ip': device_ip,
                         'hostname': hostname,
                         'vendor': device.vendor,
                         'timestamp': datetime.now().isoformat(),
                         'logs': logs,
                         'success': True
-                    }
+                    })
                     results.append({
                         'device_ip': device_ip,
                         'hostname': hostname,
@@ -751,20 +840,21 @@ async def collect_logs(request: LogCollectRequest, background_tasks: BackgroundT
                 ))
 
             except Exception as e:
-                collected_logs[device_ip] = {
+                error_msg = get_connection_error_message(e, device_ip)
+                collected_logs.set(device_ip, {
                     'device_ip': device_ip,
                     'hostname': hostname,
                     'vendor': device.vendor,
                     'timestamp': datetime.now().isoformat(),
                     'logs': None,
                     'success': False,
-                    'error': str(e)
-                }
+                    'error': error_msg
+                })
                 results.append({
                     'device_ip': device_ip,
                     'hostname': hostname,
                     'success': False,
-                    'error': str(e)
+                    'error': error_msg
                 })
 
                 # Broadcast progress - failed
@@ -790,10 +880,12 @@ async def collect_logs(request: LogCollectRequest, background_tasks: BackgroundT
 @router.get("/logs/{ip}")
 async def get_device_logs(ip: str):
     """Get collected logs for a device."""
-    if ip not in collected_logs:
+    ip = validate_ip_strict(ip)
+    log_data = collected_logs.get(ip)
+    if log_data is None:
         raise HTTPException(status_code=404, detail="Logs not found for this device")
 
-    return collected_logs[ip]
+    return log_data
 
 
 @router.get("/logs")
@@ -814,10 +906,18 @@ async def list_collected_logs():
     }
 
 
+@router.delete("/logs")
+async def clear_collected_logs(current_user: User = Depends(require_write_access)):
+    """Clear all collected logs from memory."""
+    collected_logs.clear()
+    return {"message": "Logs cleared"}
+
+
 # Config endpoints
 @router.get("/configs/{ip}")
 async def get_config_history(ip: str):
     """Get configuration history for a device."""
+    ip = validate_ip_strict(ip)
     history = storage.get_config_history(ip)
     return {
         "device_ip": ip,
@@ -835,6 +935,7 @@ async def get_config_history(ip: str):
 @router.get("/configs/{ip}/latest")
 async def get_latest_config(ip: str):
     """Get latest configuration for a device."""
+    ip = validate_ip_strict(ip)
     config = storage.get_latest_config(ip)
     if not config:
         raise HTTPException(status_code=404, detail="No configuration found")
@@ -850,6 +951,7 @@ async def get_latest_config(ip: str):
 @router.get("/configs/{ip}/download")
 async def download_config(ip: str):
     """Download the latest configuration for a device as a text file."""
+    ip = validate_ip_strict(ip)
     config = storage.get_latest_config(ip)
     if not config:
         raise HTTPException(status_code=404, detail="No configuration found")
@@ -902,8 +1004,82 @@ async def download_configs_bulk(request: BulkDownloadRequest):
     )
 
 
-# Store comparison reports in memory (could be persisted to JSON)
-comparison_reports = []
+class ExpiringList:
+    """
+    In-memory list with automatic expiration of old entries.
+
+    Each entry must have a 'timestamp' field (ISO format string).
+    """
+
+    def __init__(self, max_age_seconds: int = 86400, max_entries: int = 20):
+        """
+        Initialize the list.
+
+        Args:
+            max_age_seconds: Entries older than this are automatically removed (default 24 hours)
+            max_entries: Maximum number of entries to keep (default 20)
+        """
+        self._data: List[Dict] = []
+        self._lock = Lock()
+        self._max_age = max_age_seconds
+        self._max_entries = max_entries
+
+    def _cleanup(self) -> None:
+        """Remove expired entries (must be called with lock held)."""
+        now = datetime.now()
+        cutoff = now - timedelta(seconds=self._max_age)
+
+        # Remove expired entries
+        self._data = [
+            entry for entry in self._data
+            if datetime.fromisoformat(entry.get('timestamp', now.isoformat())) > cutoff
+        ]
+
+        # Keep only max_entries (most recent)
+        if len(self._data) > self._max_entries:
+            self._data = self._data[:self._max_entries]
+
+    def insert(self, index: int, entry: Dict) -> None:
+        """Insert an entry at the specified position."""
+        with self._lock:
+            self._data.insert(index, entry)
+            self._cleanup()
+
+    def append(self, entry: Dict) -> None:
+        """Append an entry to the list."""
+        with self._lock:
+            self._data.append(entry)
+            self._cleanup()
+
+    def get_all(self) -> List[Dict]:
+        """Get all non-expired entries."""
+        with self._lock:
+            self._cleanup()
+            return self._data.copy()
+
+    def find_by_id(self, report_id: str) -> Optional[Dict]:
+        """Find a report by its ID."""
+        with self._lock:
+            self._cleanup()
+            for entry in self._data:
+                if entry.get('id') == report_id:
+                    return entry
+            return None
+
+    def clear(self) -> None:
+        """Clear all entries."""
+        with self._lock:
+            self._data.clear()
+
+    def __len__(self) -> int:
+        """Get the number of entries."""
+        with self._lock:
+            self._cleanup()
+            return len(self._data)
+
+
+# Store comparison reports in memory with automatic cleanup (24 hour expiration, max 20 entries)
+comparison_reports = ExpiringList(max_age_seconds=86400, max_entries=20)
 
 
 @router.post("/compare")
@@ -931,8 +1107,6 @@ async def compare_configs(request: CompareRequest):
 @router.post("/compare/batch")
 async def batch_compare_configs(request: BatchCompareRequest, background_tasks: BackgroundTasks, current_user: User = Depends(require_write_access)):
     """Compare reference device configuration against multiple target devices."""
-    global comparison_reports
-
     reference_config = storage.get_latest_config(request.reference_ip)
     if not reference_config:
         raise HTTPException(status_code=404, detail=f"No config found for reference device {request.reference_ip}")
@@ -980,7 +1154,7 @@ async def batch_compare_configs(request: BatchCompareRequest, background_tasks: 
                 results.append({
                     'target_ip': target_ip,
                     'success': False,
-                    'error': str(e)
+                    'error': safe_error_message(e, f"comparing config for {target_ip}", include_type=False)
                 })
 
         # Store the report
@@ -994,10 +1168,8 @@ async def batch_compare_configs(request: BatchCompareRequest, background_tasks: 
             'failed': sum(1 for r in results if not r.get('success')),
             'results': results
         }
+        # Insert at beginning (most recent first) - ExpiringList handles size limit automatically
         comparison_reports.insert(0, report)
-        # Keep only last 20 reports
-        if len(comparison_reports) > 20:
-            comparison_reports.pop()
 
         loop.run_until_complete(manager.broadcast_complete('compare', {
             'report_id': report_id,
@@ -1014,16 +1186,23 @@ async def batch_compare_configs(request: BatchCompareRequest, background_tasks: 
 @router.get("/compare/reports")
 async def get_comparison_reports():
     """Get list of comparison reports."""
-    return {"reports": comparison_reports}
+    return {"reports": comparison_reports.get_all()}
 
 
 @router.get("/compare/reports/{report_id}")
 async def get_comparison_report(report_id: str):
     """Get a specific comparison report by ID."""
-    for report in comparison_reports:
-        if report['id'] == report_id:
-            return {"report": report}
+    report = comparison_reports.find_by_id(report_id)
+    if report:
+        return {"report": report}
     raise HTTPException(status_code=404, detail="Report not found")
+
+
+@router.delete("/compare/reports")
+async def clear_comparison_reports(current_user: User = Depends(require_write_access)):
+    """Clear all comparison reports from memory."""
+    comparison_reports.clear()
+    return {"message": "Comparison reports cleared"}
 
 
 # MAC search endpoints
@@ -1349,6 +1528,7 @@ async def remove_devices_from_group(group_id: str, request: GroupDevicesRequest,
 @router.get("/devices/{ip}/groups")
 async def get_device_groups(ip: str):
     """Get all groups that contain a specific device."""
+    ip = validate_ip_strict(ip)
     device = storage.get_device(ip)
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -1368,14 +1548,6 @@ async def get_device_groups(ip: str):
 
 
 # Backup endpoints
-from fastapi.responses import StreamingResponse
-from .auth import require_admin
-import zipfile
-import io
-import json as json_module
-from pathlib import Path
-
-
 class RestoreRequest(BaseModel):
     backup_type: str  # "config" or "full"
 

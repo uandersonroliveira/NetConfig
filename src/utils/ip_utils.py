@@ -1,6 +1,7 @@
 import re
 import ipaddress
-from typing import List, Set
+from typing import List, Set, Optional
+from fastapi import HTTPException
 
 
 def validate_ip(ip: str) -> bool:
@@ -10,6 +11,45 @@ def validate_ip(ip: str) -> bool:
         return True
     except (ipaddress.AddressValueError, ValueError):
         return False
+
+
+def validate_ip_strict(ip: str) -> str:
+    """
+    Validate and normalize an IP address.
+
+    Raises HTTPException if invalid.
+    Returns the normalized IP string.
+    """
+    if not ip:
+        raise HTTPException(status_code=400, detail="IP address is required")
+
+    ip = ip.strip()
+
+    # Check for path traversal attempts
+    dangerous_chars = ['..', '/', '\\', '%', '\x00', '\n', '\r']
+    for char in dangerous_chars:
+        if char in ip:
+            raise HTTPException(status_code=400, detail="Invalid IP address format")
+
+    try:
+        # Parse and normalize the IP address
+        parsed_ip = ipaddress.IPv4Address(ip)
+        return str(parsed_ip)
+    except (ipaddress.AddressValueError, ValueError):
+        raise HTTPException(status_code=400, detail=f"Invalid IP address: {ip[:50]}")
+
+
+def sanitize_ip_for_path(ip: str) -> str:
+    """
+    Sanitize an IP address for use in file paths.
+
+    Converts dots to underscores and validates the IP first.
+    Returns a safe string that can be used in file paths.
+    """
+    # First validate it's a proper IP
+    validated_ip = validate_ip_strict(ip)
+    # Convert to safe path format (dots to underscores)
+    return validated_ip.replace('.', '_')
 
 
 def parse_bulk_ips(text: str) -> List[str]:

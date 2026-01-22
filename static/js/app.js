@@ -99,6 +99,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             case 'devices':
                 await loadDevices();
                 await loadCredentials();
+                await initDevicesGroupFilter();
                 break;
             case 'credentials':
                 await loadCredentials();
@@ -1398,6 +1399,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    // Device filtering state
+    let deviceFilters = {
+        text: '',
+        group: '',
+        status: ''
+    };
+
     function renderDevicesTable() {
         const tbody = document.getElementById('devices-tbody');
         const selectAllCheckbox = document.getElementById('select-all-devices');
@@ -1406,6 +1414,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             selectAllCheckbox.checked = false;
         }
         updateBulkDeleteButton();
+
+        // Apply filters
+        const filteredDevices = getFilteredDevices();
+
+        // Update filter info
+        updateDeviceFilterInfo(filteredDevices.length, devices.length);
 
         if (!devices.length) {
             tbody.innerHTML = `
@@ -1419,7 +1433,19 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        tbody.innerHTML = devices.map(device => `
+        if (!filteredDevices.length) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="9" class="empty-state">
+                        <div class="empty-state-icon">&#128269;</div>
+                        <p>${I18n.t('devices.noMatchingDevices') || 'No devices match the current filters'}</p>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        tbody.innerHTML = filteredDevices.map(device => `
             <tr data-device-ip="${device.ip}" data-device-hostname="${device.hostname || ''}">
                 <td>
                     <input type="checkbox" class="device-checkbox" value="${device.ip}" onchange="updateBulkDeleteButton()">
@@ -1454,6 +1480,111 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Initialize or refresh SelectionManager
         initDeviceSelection();
     }
+
+    function getFilteredDevices() {
+        return devices.filter(device => {
+            // Text filter - search in IP, hostname, vendor, model
+            if (deviceFilters.text) {
+                const searchText = deviceFilters.text.toLowerCase();
+                const searchFields = [
+                    device.ip,
+                    device.hostname || '',
+                    device.vendor || '',
+                    device.model || ''
+                ].join(' ').toLowerCase();
+
+                if (!searchFields.includes(searchText)) {
+                    return false;
+                }
+            }
+
+            // Status filter
+            if (deviceFilters.status) {
+                const deviceStatus = device.status || 'unknown';
+                if (deviceStatus !== deviceFilters.status) {
+                    return false;
+                }
+            }
+
+            // Group filter
+            if (deviceFilters.group && deviceFilters.groupDeviceIps) {
+                if (!deviceFilters.groupDeviceIps.includes(device.ip)) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+    }
+
+    function updateDeviceFilterInfo(visibleCount, totalCount) {
+        const filterInfo = document.getElementById('devices-filter-info');
+        const visibleCountSpan = document.getElementById('devices-visible-count');
+        const totalCountSpan = document.getElementById('devices-total-count');
+
+        if (filterInfo && visibleCountSpan && totalCountSpan) {
+            const hasFilters = deviceFilters.text || deviceFilters.group || deviceFilters.status;
+            filterInfo.style.display = hasFilters ? '' : 'none';
+            visibleCountSpan.textContent = visibleCount;
+            totalCountSpan.textContent = totalCount;
+        }
+    }
+
+    async function initDevicesGroupFilter() {
+        const select = document.getElementById('devices-group-filter');
+        if (!select) return;
+
+        try {
+            const response = await API.getGroups();
+            const groupList = response.groups || [];
+
+            select.innerHTML = `<option value="">${I18n.t('devices.allGroups') || 'All Groups'}</option>` +
+                groupList.map(g => `<option value="${g.id}" data-devices='${JSON.stringify(g.device_ips)}'>${escapeHtml(g.name)} (${g.device_ips.length})</option>`).join('');
+        } catch (error) {
+            console.error('Failed to load groups for filter:', error);
+        }
+    }
+
+    window.filterDevicesTable = function(filterText) {
+        deviceFilters.text = filterText;
+        renderDevicesTable();
+    };
+
+    window.filterDevicesByGroup = function(groupId) {
+        deviceFilters.group = groupId;
+
+        if (groupId) {
+            const select = document.getElementById('devices-group-filter');
+            const selectedOption = select?.options[select.selectedIndex];
+            if (selectedOption && selectedOption.dataset.devices) {
+                deviceFilters.groupDeviceIps = JSON.parse(selectedOption.dataset.devices);
+            }
+        } else {
+            deviceFilters.groupDeviceIps = null;
+        }
+
+        renderDevicesTable();
+    };
+
+    window.filterDevicesByStatus = function(status) {
+        deviceFilters.status = status;
+        renderDevicesTable();
+    };
+
+    window.clearDeviceFilters = function() {
+        deviceFilters = { text: '', group: '', status: '' };
+
+        // Reset UI elements
+        const textFilter = document.getElementById('devices-filter');
+        const groupFilter = document.getElementById('devices-group-filter');
+        const statusFilter = document.getElementById('devices-status-filter');
+
+        if (textFilter) textFilter.value = '';
+        if (groupFilter) groupFilter.value = '';
+        if (statusFilter) statusFilter.value = '';
+
+        renderDevicesTable();
+    };
 
     function renderPoeStatus(poeStatus) {
         if (!poeStatus || !poeStatus.supported) {
@@ -1591,14 +1722,33 @@ document.addEventListener('DOMContentLoaded', async () => {
         const vendor = formData.get('vendor') || null;
         const credentialId = formData.get('credential_id') || null;
 
+        const button = e.target.querySelector('button[type="submit"]');
+        setButtonLoading(button, true, I18n.t('common.adding') || 'Adding...');
+
         try {
             const result = await API.addDevicesBulk(ipsText, vendor, credentialId);
             showToast(I18n.t('toast.devicesAdded', { count: result.added.length }), 'success');
             closeModal('add-device-modal');
             e.target.reset();
             await loadDevices();
+
+            // Auto-collect configs if credential was provided and devices were added
+            if (credentialId && result.added && result.added.length > 0) {
+                const addedIps = result.added.map(d => d.ip);
+                try {
+                    await API.startCollection(addedIps, credentialId);
+                    showToast(I18n.t('toast.autoCollectionStarted') || 'Configuration collection started for new devices', 'info');
+                    showProgress('collect');
+                    initCollectDeviceProgress(addedIps);
+                } catch (collectionError) {
+                    console.error('Auto-collection failed:', collectionError);
+                    showToast(I18n.t('toast.autoCollectionFailed') || 'Auto-collection failed, please collect manually', 'warning');
+                }
+            }
         } catch (error) {
             showToast(error.message, 'error');
+        } finally {
+            setButtonLoading(button, false);
         }
     });
 

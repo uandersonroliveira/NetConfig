@@ -37,19 +37,27 @@ body {
     width: 260px;
     background-color: var(--sidebar-bg);
     color: var(--sidebar-text);
-    padding: 1.5rem;
     position: fixed;
     height: 100vh;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .sidebar-header {
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding-bottom: 1.5rem;
+    padding: 1.5rem 1.5rem 1.5rem 1.5rem;
     border-bottom: 1px solid rgba(255,255,255,0.1);
-    margin-bottom: 1.5rem;
+}
+
+.sidebar nav {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem 1.5rem;
+    min-height: 0;
 }
 
 .sidebar-header h1 {
@@ -619,6 +627,17 @@ tr:hover {
         width: 100%;
         height: auto;
         position: relative;
+        flex-direction: column;
+    }
+
+    .sidebar nav {
+        overflow-y: visible;
+        max-height: none;
+    }
+
+    .sidebar-footer {
+        position: relative;
+        margin-top: 0;
     }
 
     .main-content {
@@ -1159,13 +1178,11 @@ tr.focused {
 
 /* Sidebar Footer / User Info */
 .sidebar-footer {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
+    flex-shrink: 0;
     padding: 1rem 1.5rem;
     border-top: 1px solid rgba(255,255,255,0.1);
     background: rgba(0,0,0,0.2);
+    margin-top: auto;
 }
 
 .user-info {
@@ -1203,11 +1220,6 @@ tr.focused {
 
 .sidebar-footer .btn-outline:hover {
     background: rgba(255,255,255,0.1);
-}
-
-/* Adjust sidebar padding to account for footer */
-.sidebar {
-    padding-bottom: 6rem;
 }
 
 /* Badge variants */

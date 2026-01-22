@@ -1,11 +1,11 @@
 """Authentication API routes."""
 
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends, Header, Request
 from pydantic import BaseModel
 
 from ..models.user import (
-    User, UserResponse, LoginRequest, TokenResponse,
+    User, UserRole, AuthType, UserResponse, LoginRequest, TokenResponse,
     AuthSettings, AuthSettingsUpdate, ADTestResult
 )
 from ..storage.json_storage import JsonStorage
@@ -13,6 +13,8 @@ from ..utils.auth import (
     hash_password, verify_password, create_access_token,
     verify_token, generate_random_password
 )
+from ..utils.rate_limiter import login_rate_limiter
+from ..utils.error_utils import safe_error_message
 
 router = APIRouter(tags=["Authentication"])
 storage = JsonStorage()
@@ -48,7 +50,7 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> User:
 # Dependency for admin-only routes
 async def require_admin(current_user: User = Depends(get_current_user)) -> User:
     """Require admin role for access."""
-    if current_user.role != "admin":
+    if current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
 
@@ -56,7 +58,7 @@ async def require_admin(current_user: User = Depends(get_current_user)) -> User:
 # Dependency for write access (blocks read-only users)
 async def require_write_access(current_user: User = Depends(get_current_user)) -> User:
     """Block read-only users from write operations."""
-    if current_user.role == "readonly":
+    if current_user.role == UserRole.READONLY:
         raise HTTPException(status_code=403, detail="Write access required")
     return current_user
 
@@ -101,8 +103,8 @@ def create_initial_admin() -> tuple[str, str]:
     admin = User(
         username="admin",
         password_hash=hash_password(password),
-        role="admin",
-        auth_type="local",
+        role=UserRole.ADMIN,
+        auth_type=AuthType.LOCAL,
         is_active=True,
         must_change_password=True
     )
@@ -112,8 +114,13 @@ def create_initial_admin() -> tuple[str, str]:
 
 
 @router.post("/auth/login", response_model=TokenResponse)
-async def login(credentials: LoginRequest):
+async def login(credentials: LoginRequest, request: Request):
     """Authenticate user and return JWT token."""
+    # Check rate limit before processing
+    login_rate_limiter.check_rate_limit(request)
+
+    user = None
+
     # Check if AD authentication is requested
     if credentials.use_ad:
         auth_settings = storage.get_auth_settings()
@@ -127,6 +134,8 @@ async def login(credentials: LoginRequest):
             ad_result = ldap_client.authenticate(credentials.username, credentials.password)
 
             if not ad_result:
+                # Record failed attempt
+                login_rate_limiter.record_attempt(request, success=False)
                 raise HTTPException(status_code=401, detail="Invalid Active Directory credentials")
 
             # Check if user exists locally
@@ -134,25 +143,27 @@ async def login(credentials: LoginRequest):
 
             if not user:
                 # Create new AD user
-                role = "readonly"  # Default role
+                role = UserRole.READONLY  # Default role
 
                 # Check AD groups for role mapping
                 if auth_settings.ad_settings.admin_group:
                     user_groups = ldap_client.get_user_groups(credentials.username)
                     if auth_settings.ad_settings.admin_group in user_groups:
-                        role = "admin"
+                        role = UserRole.ADMIN
                     elif auth_settings.ad_settings.readonly_group and auth_settings.ad_settings.readonly_group in user_groups:
-                        role = "readonly"
+                        role = UserRole.READONLY
 
                 user = User(
                     username=credentials.username,
                     role=role,
-                    auth_type="ad",
+                    auth_type=AuthType.AD,
                     email=ad_result.get("email"),
                     is_active=True
                 )
                 storage.save_user(user)
             elif not user.is_active:
+                # Record failed attempt (disabled account)
+                login_rate_limiter.record_attempt(request, success=False)
                 raise HTTPException(status_code=401, detail="User account is disabled")
 
         except ImportError:
@@ -160,22 +171,33 @@ async def login(credentials: LoginRequest):
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=401, detail=f"AD authentication failed: {str(e)}")
+            # Record failed attempt
+            login_rate_limiter.record_attempt(request, success=False)
+            raise HTTPException(status_code=401, detail="AD authentication failed")
     else:
         # Local authentication
         user = storage.get_user_by_username(credentials.username)
 
         if not user:
+            # Record failed attempt
+            login_rate_limiter.record_attempt(request, success=False)
             raise HTTPException(status_code=401, detail="Invalid username or password")
 
-        if user.auth_type == "ad":
+        if user.auth_type == AuthType.AD:
             raise HTTPException(status_code=400, detail="This user must authenticate via Active Directory")
 
         if not user.is_active:
+            # Record failed attempt (disabled account)
+            login_rate_limiter.record_attempt(request, success=False)
             raise HTTPException(status_code=401, detail="User account is disabled")
 
         if not verify_password(credentials.password, user.password_hash):
+            # Record failed attempt
+            login_rate_limiter.record_attempt(request, success=False)
             raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    # Record successful login
+    login_rate_limiter.record_attempt(request, success=True)
 
     # Update last login
     storage.update_user_last_login(user.id)
@@ -327,7 +349,7 @@ async def test_ad_connection(
     except Exception as e:
         return ADTestResult(
             success=False,
-            message=f"Connection test failed: {str(e)}"
+            message=f"Connection test failed: {safe_error_message(e, 'AD connection test', include_type=False)}"
         )
 
 

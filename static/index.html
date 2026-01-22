@@ -175,6 +175,37 @@
 
                 <!-- All Devices Tab -->
                 <div id="devices-list-tab" class="tab-content active">
+                    <!-- Device Filters -->
+                    <div class="card" style="margin-bottom: 1rem; padding: 1rem;">
+                        <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                            <div style="flex: 1; min-width: 200px;">
+                                <input type="text" id="devices-filter" class="form-control"
+                                       data-i18n-placeholder="devices.filterPlaceholder"
+                                       placeholder="Filter by hostname, IP, vendor, or model..."
+                                       oninput="filterDevicesTable(this.value)">
+                            </div>
+                            <div style="min-width: 180px;">
+                                <select id="devices-group-filter" class="form-control" onchange="filterDevicesByGroup(this.value)">
+                                    <option value="" data-i18n="devices.allGroups">All Groups</option>
+                                </select>
+                            </div>
+                            <div style="min-width: 150px;">
+                                <select id="devices-status-filter" class="form-control" onchange="filterDevicesByStatus(this.value)">
+                                    <option value="" data-i18n="devices.allStatus">All Status</option>
+                                    <option value="online" data-i18n="dashboard.online">Online</option>
+                                    <option value="offline" data-i18n="dashboard.offline">Offline</option>
+                                    <option value="unknown" data-i18n="devices.unknown">Unknown</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-secondary btn-sm" onclick="clearDeviceFilters()" data-i18n="common.clearFilters">
+                                Clear Filters
+                            </button>
+                        </div>
+                        <div id="devices-filter-info" style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-muted); display: none;">
+                            <span data-i18n="devices.showing">Showing</span> <span id="devices-visible-count">0</span> <span data-i18n="devices.of">of</span> <span id="devices-total-count">0</span> <span data-i18n="devices.devicesLabel">devices</span>
+                        </div>
+                    </div>
+
                     <div id="status_check-progress" class="progress-container" style="display: none;">
                         <div class="progress-bar">
                             <div class="progress-bar-fill" style="width: 0%"></div>

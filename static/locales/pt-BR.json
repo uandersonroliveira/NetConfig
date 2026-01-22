@@ -67,7 +67,8 @@
     "differences": "{{count}} diferenças",
     "configuration": "Configuração",
     "noLogsAvailable": "Nenhum log disponível",
-    "emailOptional": "E-mail (opcional)"
+    "emailOptional": "E-mail (opcional)",
+    "clearFilters": "Limpar Filtros"
   },
   "dashboard": {
     "title": "Painel",
@@ -99,6 +100,14 @@
     "portUsage": "Portas",
     "noPoe": "N/A",
     "utilization": "utilização",
+    "filterPlaceholder": "Filtrar por hostname, IP, fabricante ou modelo...",
+    "allGroups": "Todos os Grupos",
+    "allStatus": "Todos os Status",
+    "unknown": "Desconhecido",
+    "showing": "Exibindo",
+    "of": "de",
+    "devicesLabel": "dispositivos",
+    "noMatchingDevices": "Nenhum dispositivo corresponde aos filtros atuais",
     "addDevicesModal": {
       "title": "Adicionar Dispositivos",
       "ipAddresses": "Endereços IP",
@@ -147,7 +156,7 @@
     "discoveredDevices": "Dispositivos Descobertos",
     "selectToAdd": "Selecione os dispositivos para adicionar ao seu inventário:",
     "responseTime": "Tempo de Resposta",
-    "addSelected": "Adicionar Selecionados ({{count}})",
+    "addSelected": "Adicionar Selecionados",
     "clearResults": "Limpar Resultados",
     "alreadyExists": "Já existe",
     "new": "Novo",
@@ -370,6 +379,8 @@
     "scanComplete": "Varredura concluída: {{count}} dispositivos encontrados",
     "collectionStarted": "Coleta iniciada",
     "collectionComplete": "Coleta concluída: {{success}}/{{total}} com sucesso",
+    "autoCollectionStarted": "Coleta de configurações iniciada para os novos dispositivos",
+    "autoCollectionFailed": "Falha na coleta automática, por favor colete manualmente",
     "logCollectionStarted": "Coleta de logs iniciada",
     "logCollectionComplete": "Coleta de logs concluída: {{success}}/{{total}} com sucesso",
     "statusCheckStarted": "Verificação de status iniciada",
